@@ -6,6 +6,24 @@ This project builds upon [linuxserver/docker-wireguard](https://github.com/linux
 
 You can find the Docker image [here](https://hub.docker.com/r/tigsus/gw-scripts) and the source code on [GitHub](https://github.com/tigsus/gw-scripts).
 
+## Quick-Run
+
+The following will run `gw-scripts` pulling from the image on docker hub.
+
+```bash
+$ docker run -d \
+    --name gw-scripts \
+    --cap-add NET_ADMIN \
+    -e PUID=1000 \
+    -e PGID=1000 \
+    -e TZ=America/Chicago \
+    -e SERVERURL=myserver.example.com \
+    -e SERVER_MODE=true \
+    -e LOG_CONFS=false \
+    --restart unless-stopped \
+    tigsus/gw-scripts:1.0.20210914
+```
+
 ## Features
 
 gw-scripts provides the following scripts to help you set up and manage your WireGuard servers and peers:
@@ -41,22 +59,22 @@ gw-scripts provides the following scripts to help you set up and manage your Wir
     - peer names receive BEGIN/END blocks inside `config/wg_confs/DEVINT.conf`.
 - `wg_unit_tests.sh`: Used to verify scripts.
 
-## Installation
+## Roll-Your-Own
 
-To install gw-scripts, you need to have Docker and Docker Compose installed on your system. 
-You also need to have a GitHub account and a repository that you want to clone. 
-You can follow these steps to install gw-scripts:
+To roll-your-own gw-scripts, you need to have Docker and Docker Compose installed on your system. 
 
-1. Clone this repository to your local drive:
+1. Clone our repository to your local drive:
 
 ```bash
 git clone https://github.com/tigsus/gw-scripts.git
 cd gw-scripts
 ```
 
+2. Make your changes to the source.
+
 ## Docker Build
 
-Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard).
+Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard). For custom-builds, replace our repo information `tigsus/gw-scripts` with your own. 
 
 ```bash
 docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914" -t tigsus/gw-scripts:1.0.20210914 .
@@ -193,9 +211,9 @@ gw-scripts is an open source project and we welcome contributions from anyone wh
 3. Push your branch to your forked repository and create a pull request to the main repository.
 4. Wait for the maintainers to review and merge your pull request.
 
-Please make sure to follow the code style and conventions of the project, and to test your changes before submitting a pull request. You can also check the [issues](^2^) page to see if there are any open tasks that you can help with.
+Please make sure to follow the code style and conventions of the project, and to test your changes before submitting a pull request. You can also check the [issues](https://github.com/tigsus/gw-scripts/issues) page to see if there are any open tasks that you can help with.
 
 ## License
 
-gw-scripts is licensed under the [GPL Version 3](#license). See the [LICENSE](#license) file for more details.
+gw-scripts is licensed under the [GPL Version 3](LICENSE). See the [LICENSE](LICENSE) file for more details.
 
