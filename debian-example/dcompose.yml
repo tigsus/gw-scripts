@@ -7,13 +7,15 @@ services:
     cap_add:
       - NET_ADMIN
       #- SYS_MODULE # Uncomment if required for additional WireGuard features
-      #volumes:
-      #- ./data:/config # Uncomment if you need persistent configuration data
+    volumes:
+      - ./data/config:/config # Uncomment if you need persistent configuration data
     environment:
       - PUID=1000
       - PGID=1000
-      - TZ=${TZ:-America/Chicago}  # Use the timezone from .env or default to Chicago
-      - SERVERURL=${SERVERURL:-myserver.example.com}  # URL for the server, default value as fallback
+      - TZ=${GWContainerWGTimeZone:-America/Chicago}  # Use the timezone from .env or default to Chicago
+      - SERVERURL=${GWContainerWGServerUrl:-myserver.example.com}  # URL for the external server, default value as fallback
+      - SERVERPORT=${GWContainerWGServerPort:-51820}  # Port for the external server, default value as fallback
+      - INTERNAL_SUBNET=${GWContainerWGSubnet:-10.13.13.0}  # The wireguard vpn network created as an interface inside the container instance
       - SERVER_MODE=true
       - LOG_CONFS=false
     restart: unless-stopped

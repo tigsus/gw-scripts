@@ -12,6 +12,7 @@ services:
       - PGID=1000
       - TZ=America/Chicago
       - SERVERURL=myserver.example.com
+      - SERVERPORT=51820
       - SERVER_MODE=true
       - LOG_CONFS=false
     restart: unless-stopped
