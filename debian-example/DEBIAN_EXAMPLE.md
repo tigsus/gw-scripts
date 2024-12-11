@@ -38,6 +38,9 @@ GWContainerWGGW=192.168.55.1                 # WireGuard gateway IP within the c
 GWContainerWGSubnet=192.168.55.0             # WireGuard subnet
 GWContainerWGMask=255.255.255.0              # WireGuard network mask
 GWContainerWGSubnetMask=192.168.55.0/24      # WireGuard subnet with mask
+GWContainerWGPeerDNS=                        # The DNS Server to use
+GWContainerWGAllowedIPs=                     # Allowed IP subnets to connect to
+GWContainerWGPersistKeepAlive=               # If "true", then persist keep alive is enabled for the server by default
 ```
 
 ## Prerequisites

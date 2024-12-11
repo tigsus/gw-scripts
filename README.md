@@ -21,7 +21,7 @@ $ docker run -d \
     -e SERVER_MODE=true \
     -e LOG_CONFS=false \
     --restart unless-stopped \
-    tigsus/gw-scripts:1.0.20210914-2
+    tigsus/gw-scripts:1.0.20210914-3
 ```
 
 ## Features
@@ -77,7 +77,7 @@ cd gw-scripts
 Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard). For custom-builds, replace our repo information `tigsus/gw-scripts` with your own. 
 
 ```bash
-docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-2" -t tigsus/gw-scripts:1.0.20210914-2 .
+docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-3" -t tigsus/gw-scripts:1.0.20210914-3 .
 ```
 
 ## Docker Compose
