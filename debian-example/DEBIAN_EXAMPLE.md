@@ -33,6 +33,7 @@ GWDockerHostNetGW=172.24.101.1               # Gateway of the Docker network
 GWDockerHostNetGWSubnet=172.24.101.0/24      # Subnet of the Docker network
 GWDockerHostContainerIP=172.24.101.2         # IP of the WireGuard container service
 GWContainerName=wg101                        # Container name
+GWContainerWGDevice=wg0                      # Wireguard device name inside the container
 GWContainerWGGW=192.168.55.1                 # WireGuard gateway IP within the container
 GWContainerWGSubnet=192.168.55.0             # WireGuard subnet
 GWContainerWGMask=255.255.255.0              # WireGuard network mask
