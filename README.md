@@ -21,7 +21,7 @@ $ docker run -d \
     -e SERVER_MODE=true \
     -e LOG_CONFS=false \
     --restart unless-stopped \
-    tigsus/gw-scripts:1.0.20210914
+    tigsus/gw-scripts:1.0.20210914-2
 ```
 
 ## Features
@@ -31,7 +31,7 @@ gw-scripts provides the following scripts to help you set up and manage your Wir
 - `wg_down.sh`: This script brings down the `wg` server (all device interfaces).
 - `wg_up.sh`: This script brings up the `wg` server (all device interfaces).
 - `wg_reload.sh`: This script performs a hot reload of a single device interface that won't disrupt active sessions.
-- `wg_server_create.sh`: This script creates a new server device interface.
+- `wg_server_create.sh`: This script creates a new server device interface. Use option `-L` to list existing servers.
     - It makes a directory at `/config/server_DEVINT`.
     - It makes a new server file in `config/wg_confs/DEVINT.conf`.
 - `wg_server_destroy.sh`: This script deletes all references to a server by its device interface.
@@ -77,7 +77,7 @@ cd gw-scripts
 Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard). For custom-builds, replace our repo information `tigsus/gw-scripts` with your own. 
 
 ```bash
-docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914" -t tigsus/gw-scripts:1.0.20210914 .
+docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-2" -t tigsus/gw-scripts:1.0.20210914-2 .
 ```
 
 ## Docker Compose
