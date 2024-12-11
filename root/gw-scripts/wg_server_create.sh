@@ -9,6 +9,36 @@ ARG_ALLOWEDIPS=
 ARG_DOPERSISTANTKEEPALIVES=false
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# Functions
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+function list_servers {
+    SERVER_DIR_PREFIX="/config/server_"
+    SERVERS=()
+    
+    # Loop through directories matching the prefix
+    for SERVER_DIR in ${SERVER_DIR_PREFIX}*; do
+        if [[ -d "$SERVER_DIR" ]]; then
+            SERVER_NAME=$(basename "$SERVER_DIR" | sed "s/server_//")
+            SERVERS+=("\"$SERVER_NAME\"")
+        fi
+    done
+
+    # Print JSON array
+    # examples:
+    # empty = []
+    # one   = ["wg1"]
+    # multi = ["wg1","wg2"]
+    if [[ ${#SERVERS[@]} -eq 0 ]]; then
+        echo "[]" # Empty JSON array
+    else
+        # Use printf to join elements with a comma
+        echo "[${SERVERS[*]}]" | sed 's/ /,/g'
+    fi
+    exit 0
+}
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CLI
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -23,9 +53,10 @@ function usage {
     echo "   -S    internal subnet"
     echo "   -A    allowed-ips"
     echo "   -K    persistant keep alive (default: false)"
+    echo "   -L    list servers"
 }
 
-while getopts "hD:U:P:N:S:A:K:" opt; do
+while getopts "hD:U:P:N:S:A:K:L" opt; do
   case $opt in
     D) # device interface
         ARG_DEVINT=${OPTARG}
@@ -50,6 +81,9 @@ while getopts "hD:U:P:N:S:A:K:" opt; do
         if [[ "$ARG_DOPERSISTANTKEEPALIVES" != "true" ]]; then
             ARG_DOPERSISTANTKEEPALIVES=false
         fi
+        ;;
+    L) # list servers
+        list_servers
         ;;
     h | *) # display help
         usage
