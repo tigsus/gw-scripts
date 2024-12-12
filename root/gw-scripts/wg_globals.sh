@@ -3,43 +3,64 @@
 # Input file
 INPUT_FILE="globals.env"
 
-function convert_env_to_json {                          
-    # Check if the input file exists                      
-    if [[ ! -f "$INPUT_FILE" ]]; then                           
-        echo "Error: $INPUT_FILE not found!" >&2                      
-        exit 1                                                        
-    fi                                                        
-                                                        
-    # Start the JSON object                               
-    echo "{"                                                    
-                                                                      
-    # Read the .env file line by line                                 
-    first=true                                                
-    while IFS='=' read -r key value; do                 
-        # Skip empty lines and lines that start with a #  
-        if [[ -n "$key" && "$key" != \#* ]]; then                                
-            # Add a comma before each new entry except the first                 
-            if [[ $first == true ]]; then                             
-                first=false                                   
-            else                                       
-                echo ","                                  
-            fi                                                                   
-                                                                                 
-            # Check for GWContainerWGServerPort and convert to integer
-            if [[ "$key" == "GWContainerWGServerPort" ]]; then
-                echo "  \"$key\": $value"              
-            else                                          
-                # Output the key-value pair in JSON format                       
-                echo "  \"$key\": \"$value\""                                    
-            fi                                          
-        fi                                              
-    done < "$INPUT_FILE"                               
-                                                       
-    # End the JSON object                                                        
-    echo                                                                         
-    echo "}"                                            
-                                                               
-    exit 0                                                     
+function convert_env_to_json {
+    # Check if the input file exists
+    if [[ ! -f "$INPUT_FILE" ]]; then
+        echo "Error: $INPUT_FILE not found!" >&2
+        exit 1
+    fi
+
+    # Start the JSON object
+    echo "{"
+
+    # Read the .env file line by line
+    first=true
+    while IFS='=' read -r key value; do
+        # Skip empty lines and lines that start with a #
+        if [[ -n "$key" && "$key" != \#* ]]; then
+            # Add a comma before each new entry except the first
+            if [[ $first == true ]]; then
+                first=false
+            else
+                echo ","
+            fi
+            # Lowercase "GW" prefix for the JSON property name
+            json_key=$(echo "$key" | sed 's/^GW/gw/')
+
+            # Handle specific cases for data types
+            case "$key" in
+                "GWContainerWGServerPort")
+                    echo "  \"$json_key\": $value"
+                    ;;
+                "GWContainerWGPeerDNS" | "GWContainerWGAllowedIPs")
+                    # Convert comma-separated values into JSON array
+                    if [[ -z "$value" ]]; then
+                        echo "  \"$json_key\": []"
+                    else
+                        echo "  \"$json_key\": [$(echo "$value" | sed 's/,/","/g' | sed 's/^/"/;s/$/"/')]"
+                    fi
+                    ;;
+                "GWContainerWGPersistKeepAlive")
+                    # Convert value to boolean
+                    if [[ "$value" == "true" || "$value" == "1" ]]; then
+                        echo "  \"$json_key\": true"
+                    else
+                        echo "  \"$json_key\": false"
+                    fi
+                    ;;
+                *)
+                    # Default case: output key-value pair as string
+                    echo "  \"$json_key\": \"$value\""
+                    ;;
+            esac
+        fi
+    done < "$INPUT_FILE"
+
+    # End the JSON object
+    echo
+    echo "}"
+
+    exit 0
 }
 
 function initialize_using_defaults {
