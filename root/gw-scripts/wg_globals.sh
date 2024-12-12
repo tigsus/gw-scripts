@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Input file
-INPUT_FILE="globals.env"
+INPUT_FILE="/gw-scripts/globals.env"
 
 function convert_env_to_json {
     # Check if the input file exists
