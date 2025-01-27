@@ -21,7 +21,7 @@ $ docker run -d \
     -e SERVER_MODE=true \
     -e LOG_CONFS=false \
     --restart unless-stopped \
-    tigsus/gw-scripts:1.0.20210914-4
+    tigsus/gw-scripts:1.0.20210914-6
 ```
 > In order to use `wg_globals.sh` (optional in `gw-scripts`) include `globals.env`. In the Debian folder there is a sample `.env` file. To use it, add parameter `-v debian-example/.env:/gw-scripts/globals.env`.
 
@@ -41,6 +41,10 @@ gw-scripts provides the following scripts to help you set up and manage your Wir
 - `wg_server_status.sh`: This script shows a status listing of all peers for a single device interface and includes these outputs:
     - `Address`, `Endpoint`, `Last-Handshake`, `TransferRx` and `TransferTx`
     - It is a tweaked version of `wg-json` found in [wireguard-tools contribs](https://github.com/WireGuard/wireguard-tools/blob/master/contrib/json/wg-json)
+- `wg_peer_list.sh`: This script retrieves a listing of peers for a specified device interface (`DEVINT`), with optional filters for `PEERID`, `USERID`, or specific file types (`conf`, `png`, `json`).
+    - The script fetches data directly from the server directory (`/config/server_DEVINT/peer_PEERID`) using the specified parameters.
+    - Outputs include peer configuration files (`peer_PEERID.conf`), QR codes (`peer_PEERID.png`), or user-device details (`user-device.json`) as JSON objects or binary data.
+    - Uses: Helps to manage and retrieve peer-specific configurations, enabling quick access to peer data and metadata.
 - `wg_peer_new.sh`: This script creates a new peer (aka client) by DEVINT using a PEERID and optional USERID.
     - It makes a directory under the server folder `/config/server_DEVINT/peer_PEERID`.
     - It updates the entry in `config/wg_confs/DEVINT.conf`.
@@ -78,7 +82,7 @@ cd gw-scripts
 Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard). For custom-builds, replace our repo information `tigsus/gw-scripts` with your own. 
 
 ```bash
-docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-4" -t tigsus/gw-scripts:1.0.20210914-4 .
+docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-6" -t tigsus/gw-scripts:1.0.20210914-6 .
 ```
 
 ## Docker Compose
