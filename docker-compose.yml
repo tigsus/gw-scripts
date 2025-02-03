@@ -1,6 +1,6 @@
 services:
   ghostwarp:
-    image: tigsus/gw-scripts:1.0.20210914-6
+    image: tigsus/gw-scripts:1.0.20210914-7
     container_name: gw-scripts
     cap_add:
       - NET_ADMIN
