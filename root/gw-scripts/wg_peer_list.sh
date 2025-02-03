@@ -71,26 +71,6 @@ fi
 
 ARG_FILE=${ARG_FILE:-json}
 
-if [[ "$ARG_FILE" = "conf" || "$ARG_FILE" = "png" ]]; then
-    if [[ -z "$ARG_PEER" ]]; then
-        echo "Parameter -p (PEER) is required for -F conf or -F png. Use -h for help."
-        exit 1
-    fi
-
-    ARG_FILE_PATH="${SERVER_DIR}/${ARG_PEER}/${ARG_PEER}.${ARG_FILE}"
-    if [[ ! -f "$ARG_FILE_PATH" ]]; then
-        echo "failed: file not found ${ARG_FILE_PATH}"
-        exit 1
-    fi
-
-    if [[ "$ARG_FILE" = "png" ]]; then
-        cp "${ARG_FILE_PATH}" -
-    else
-        cat "${ARG_FILE_PATH}"
-    fi
-    exit 0
-fi
-
 if [[ -n "$ARG_PEER" ]]; then
     # Add the "peer_" prefix to ARG_PEER if it doesn't already have it
     if [[ "$ARG_PEER" != peer_* ]]; then
