@@ -21,7 +21,7 @@ $ docker run -d \
     -e SERVER_MODE=true \
     -e LOG_CONFS=false \
     --restart unless-stopped \
-    tigsus/gw-scripts:1.0.20210914-7
+    tigsus/gw-scripts:1.0.20210914-8
 ```
 > In order to use `wg_globals.sh` (optional in `gw-scripts`) include `globals.env`. In the Debian folder there is a sample `.env` file. To use it, add parameter `-v debian-example/.env:/gw-scripts/globals.env`.
 
@@ -40,6 +40,7 @@ gw-scripts provides the following scripts to help you set up and manage your Wir
     - It deletes the server file in `config/wg_confs/DEVINT.conf`.
 - `wg_server_status.sh`: This script shows a status listing of all peers for a single device interface and includes these outputs:
     - `Address`, `Endpoint`, `Last-Handshake`, `TransferRx` and `TransferTx`
+    - Results embed `user-device.json` in the key `userDevice`
     - It is a tweaked version of `wg-json` found in [wireguard-tools contribs](https://github.com/WireGuard/wireguard-tools/blob/master/contrib/json/wg-json)
 - `wg_peer_list.sh`: This script retrieves a listing of peers for a specified device interface (`DEVINT`), with optional filters for `PEERID`, `USERID`, or specific file types (`conf`, `png`, `json`).
     - The script fetches data directly from the server directory (`/config/server_DEVINT/peer_PEERID`) using the specified parameters.
@@ -82,7 +83,7 @@ cd gw-scripts
 Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard). For custom-builds, replace our repo information `tigsus/gw-scripts` with your own. 
 
 ```bash
-docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-7" -t tigsus/gw-scripts:1.0.20210914-7 .
+docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-8" -t tigsus/gw-scripts:1.0.20210914-8 .
 ```
 
 ## Docker Compose
