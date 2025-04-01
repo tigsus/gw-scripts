@@ -18,6 +18,7 @@ ARG_DEVINT=
 ARG_USER_ID=
 ARG_FILE=
 ARG_PEER=
+ARG_IP=
 
 # Check for jq
 if ! command -v jq &>/dev/null; then
@@ -33,20 +34,23 @@ function usage {
     echo "   -D    device interface"
     echo "   -p    peer ID (required for -F conf or -F png)"
     echo "   -U    filter on user id"
+    echo "   -i    filter on IP address"
     echo "   -F    file type (json | conf | png) default=json"
     echo
     echo "Examples:"
     echo "  $0 -D wg0"
     echo "  $0 -D wg0 -p peer_1 -F conf"
     echo "  $0 -D wg0 -U user@example.com"
+    echo "  $0 -D wg0 -i 192.168.0.1"
 }
 
-while getopts "hD:U:F:p:" opt; do
+while getopts "hD:U:F:p:i:" opt; do
     case $opt in
         D) ARG_DEVINT=${OPTARG} ;;
         U) ARG_USER_ID=${OPTARG} ;;
         F) ARG_FILE=${OPTARG} ;;
         p) ARG_PEER=${OPTARG} ;;
+        i) ARG_IP=${OPTARG} ;;
         h | *) usage; exit 0 ;;
     esac
 done
@@ -70,26 +74,6 @@ if [[ ! -d "$SERVER_DIR" ]]; then
 fi
 
 ARG_FILE=${ARG_FILE:-json}
-
-if [[ "$ARG_FILE" = "conf" || "$ARG_FILE" = "png" ]]; then
-    if [[ -z "$ARG_PEER" ]]; then
-        echo "Parameter -p (PEER) is required for -F conf or -F png. Use -h for help."
-        exit 1
-    fi
-
-    ARG_FILE_PATH="${SERVER_DIR}/${ARG_PEER}/${ARG_PEER}.${ARG_FILE}"
-    if [[ ! -f "$ARG_FILE_PATH" ]]; then
-        echo "failed: file not found ${ARG_FILE_PATH}"
-        exit 1
-    fi
-
-    if [[ "$ARG_FILE" = "png" ]]; then
-        cp "${ARG_FILE_PATH}" -
-    else
-        cat "${ARG_FILE_PATH}"
-    fi
-    exit 0
-fi
 
 if [[ -n "$ARG_PEER" ]]; then
     # Add the "peer_" prefix to ARG_PEER if it doesn't already have it
@@ -134,6 +118,10 @@ for PEER_DIR in ${SERVER_DIR}/peer_*; do
         if [[ -f "$DEVJSON_FILE" ]]; then
             USER_ID=$(jq -r '.userId' "$DEVJSON_FILE")
             if [[ -n "$ARG_USER_ID" ]] && [[ "${USER_ID,,}" != "${ARG_USER_ID,,}" ]]; then
+                continue
+            fi
+            CLIENT_IP=$(jq -r '.clientIP' "$DEVJSON_FILE")
+            if [[ -n "$ARG_IP" ]] && [[ "${CLIENT_IP,,}" != "${ARG_IP,,}" ]]; then
                 continue
             fi
             PEERS+=("$(cat "$DEVJSON_FILE")")

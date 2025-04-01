@@ -142,38 +142,38 @@ function initialize_using_defaults {
         exit 1
     fi
 }
-                                                                                         
-function usage {                                                                         
-    echo "Usage: $0 [PARAMS]"                                                            
-    echo "  parameters:"                                                                 
-    echo "   -h    help"                                                                 
-    echo "   -j    convert globals.env to json"                          
-    echo "   -i    initialize using defaults"               
+
+function usage {
+    echo "Usage: $0 [PARAMS]"
+    echo "  parameters:"
+    echo "   -h    help"
+    echo "   -j    convert globals.env to json"
+    echo "   -i    initialize using defaults"
 }                                                                                
                                                                                  
-while getopts "hji" opt; do                                           
-  case $opt in                                                                           
-    j) # convert globals.env to json                                     
-        convert_env_to_json                               
-        ;;                                                                       
-    i) # initialize using defaults                                               
-        initialize_using_defaults                             
-        ;;                                                                               
-    h | *) # display help                                                
-        usage                                            
-        exit 0                                                                   
-        ;;                                                                       
-    \?)                                                       
-        set +x                                                                           
-        echo "Invalid option: -$OPTARG" >&2                              
-        usage                                            
-        exit 1                                                                   
-        ;;                                                                       
-    :)                                                        
-        set +x                                                                           
-        echo "Option -$OPTARG requires an argument." >&2                 
-        usage                                            
-        exit 1                                                                   
-        ;;                                                                       
-  esac                                                        
+while getopts "hji" opt; do
+  case $opt in
+    j) # convert globals.env to json
+        convert_env_to_json
+        ;;
+    i) # initialize using defaults
+        initialize_using_defaults
+        ;;
+    h | *) # display help
+        usage
+        exit 0
+        ;;
+    \?)
+        set +x
+        echo "Invalid option: -$OPTARG" >&2
+        usage
+        exit 1
+        ;;
+    :)
+        set +x
+        echo "Option -$OPTARG requires an argument." >&2
+        usage
+        exit 1
+        ;;
+  esac
 done

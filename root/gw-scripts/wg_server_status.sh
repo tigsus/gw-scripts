@@ -89,6 +89,21 @@ while read -r -d $'\t' device; do
             read -r public_key preshared_key endpoint allowed_ips latest_handshake transfer_rx transfer_tx persistent_keepalive
             printf '%s\t\t\t"%s": {' "$delim" "$public_key"
             delim=$'\n'
+            
+            ### Embed the peer's user-device.json file
+            filePeerPub=$(grep -rl "$public_key" /config/server_$last_device/peer_*)
+            
+            if [[ -n "$filePeerPub" ]]; then
+                peer_dir=$(dirname "$filePeerPub")
+                user_device_json="$peer_dir/user-device.json"
+                
+                if [[ -f "$user_device_json" ]]; then
+                    user_device_data=$(cat "$user_device_json" | tr -d '\n' | tr -d '\r')
+                    printf '%s				"userDevice": %s' "$delim" "$user_device_data"
+                    delim=$',\n'
+                fi
+            fi
+
             [[ $preshared_key == "(none)" ]] || { printf '%s\t\t\t\t"presharedKey": "%s"' "$delim" "$preshared_key"; delim=$',\n'; }
             [[ $endpoint == "(none)" ]] || { printf '%s\t\t\t\t"endpoint": "%s"' "$delim" "$endpoint"; delim=$',\n'; }
             [[ $latest_handshake == "0" ]] || { printf '%s\t\t\t\t"latestHandshake": %u' "$delim" $(( $latest_handshake )); delim=$',\n'; }
