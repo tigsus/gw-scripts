@@ -2,7 +2,7 @@ version: '3.8' # Optional but recommended to specify version for compatibility
 
 services:
   ghostwarp:
-    image: tigsus/gw-scripts:1.0.20210914-8
+    image: tigsus/gw-scripts:1.0.20210914-9
     container_name: ${GWContainerName}
     cap_add:
       - NET_ADMIN
