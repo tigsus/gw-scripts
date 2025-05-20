@@ -1,6 +1,6 @@
 services:
   gw-scripts:
-    image: tigsus/gw-scripts:1.0.20210914-11
+    image: tigsus/gw-scripts:1.0.20210914-12
     container_name: ${GWContainerName}
     cap_add:
       - NET_ADMIN

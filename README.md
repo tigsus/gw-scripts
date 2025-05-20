@@ -34,7 +34,7 @@ docker run -d \
   -e TZ=America/Chicago \
   -v ./required.env:/gw-scripts/globals.env \
   --restart unless-stopped \
-  tigsus/gw-scripts:1.0.20210914-11
+  tigsus/gw-scripts:1.0.20210914-12
 ````
 
 ### Option 2: `docker-compose.yml`
@@ -42,7 +42,7 @@ docker run -d \
 ```yaml
 services:
   gw-scripts:
-    image: tigsus/gw-scripts:1.0.20210914-11
+    image: tigsus/gw-scripts:1.0.20210914-12
     container_name: ${GWContainerName}
     cap_add:
       - NET_ADMIN
@@ -158,8 +158,8 @@ To rebuild the image locally:
 ```bash
 docker build \
   --build-arg BUILD_DATE="$(date +%Y%m%d)" \
-  --build-arg VERSION="1.0.20210914-11" \
-  -t tigsus/gw-scripts:1.0.20210914-11 .
+  --build-arg VERSION="1.0.20210914-12" \
+  -t tigsus/gw-scripts:1.0.20210914-12 .
 ```
 
 ---
