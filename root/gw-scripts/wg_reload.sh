@@ -1,61 +1,45 @@
 #!/bin/bash
 
+set -e
+
 ARG_DEVINT=""
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CLI
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-function usage {
-    echo "Usage: $0 -p <PEER> [PARAMS]"
-    echo "  parameters:"
-    echo "   -h    help"
-    echo "   -D    device interface"
+usage() {
+    echo "Usage: $0 -D <DEVICE_INTERFACE>"
+    echo "  Parameters:"
+    echo "   -h    Help"
+    echo "   -D    WireGuard device interface (e.g., wg0)"
 }
 
-while getopts "hp:D:" opt; do
+while getopts "hD:" opt; do
   case $opt in
-    D) # device interface
-        ARG_DEVINT=${OPTARG}
-        ;;
-    h | *) # display help
-        usage
-        exit 0
-        ;;
-    \?)
-        set +x
-        echo "Invalid option: -$OPTARG" >&2
-        usage
-        exit 1
-        ;;
-    :)
-        set +x
-        echo "Option -$OPTARG requires an argument." >&2
-        usage
-        exit 1
-        ;;
+    D) ARG_DEVINT=${OPTARG} ;;
+    h | *) usage; exit 0 ;;
+    \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
+    :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
   esac
 done
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_DEVINT CHECKS
+# VALIDATION
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 # Check if ARG_DEVINT is empty string
 if [[ -z "$ARG_DEVINT" ]]; then
-    echo "Parameter -D (DEVINT) is required. Use -h for help."
+    echo "**** [ERROR] -D (DEVICE_INTERFACE) is required. Use -h for help. ****"
     exit 1
 fi
 
-# run the reload on wg0
-# per manual this avoids disrupting active sessions
-wg syncconf ${ARG_DEVINT} <(wg-quick strip ${ARG_DEVINT})
+# ─── Reload Interface
+echo "**** Reloading WireGuard configuration for interface: $ARG_DEVINT ****"
 
-# Check if the operation was successful
-if [ $? -eq 0 ]; then
-    echo "success: reload of wireguard interfact ${ARG_DEVINT}"
+if wg syncconf "$ARG_DEVINT" <(wg-quick strip "$ARG_DEVINT"); then
+    echo "**** [SUCCESS] Reloaded WireGuard interface $ARG_DEVINT without disrupting active sessions. ****"
 else
-    echo "failed to reload wireguard interface ${ARG_DEVINT}"
+    echo "**** [ERROR] Failed to reload WireGuard interface $ARG_DEVINT. ****"
     exit 1
 fi
-

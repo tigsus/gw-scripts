@@ -1,225 +1,182 @@
 # gw-scripts
 
-**gw-scripts** is a collection of bash scripts designed to help you manage and configure WireGuard servers and peers using Docker. WireGuard is a fast, modern, and secure VPN tunnel that runs on Linux, Windows, macOS, Android, iOS, and more. Docker is a platform that allows you to run applications in isolated containers.
+**gw-scripts** is a lightweight set of Bash scripts to help manage WireGuard VPN servers and peers using Docker. It automates setup, management, and configuration of WireGuard, allowing you to define VPN services using a structured `.env` file. It also introduces additional metadata fields that make it easier to associate users or accounts with specific peers — supporting better auditability and user tracking in multi-peer environments.
 
-This project builds upon [linuxserver/docker-wireguard](https://github.com/linuxserver/docker-wireguard), which provides a Docker image for WireGuard.
+## Architecture
 
-You can find the Docker image [here](https://hub.docker.com/r/tigsus/gw-scripts) and the source code on [GitHub](https://github.com/tigsus/gw-scripts).
+At its core, `gw-scripts` builds upon the widely-used [linuxserver/docker-wireguard](https://github.com/linuxserver/docker-wireguard) image. This base image is built on Alpine Linux and utilizes the **s6-overlay** for process supervision and container lifecycle management. This architecture ensures lightweight deployment, robust service orchestration, and clean separation of duties between the operating environment and VPN-specific logic.
 
-## Quick-Run
+The `gw-scripts` layer adds a full suite of automation Bash scripts to simplify WireGuard server and peer setup, while remaining tightly aligned with Docker practices. This design allows `gw-scripts` to integrate seamlessly with CLI-based workflows.
 
-The following will run `gw-scripts` pulling from the image on docker hub.
-
-```bash
-$ docker run -d \
-    --name gw-scripts \
-    --cap-add NET_ADMIN \
-    -e PUID=1000 \
-    -e PGID=1000 \
-    -e TZ=America/Chicago \
-    -e SERVERURL=myserver.example.com \
-    -e SERVER_MODE=true \
-    -e LOG_CONFS=false \
-    --restart unless-stopped \
-    tigsus/gw-scripts:1.0.20210914-9
-```
-> In order to use `wg_globals.sh` (optional in `gw-scripts`) include `globals.env`. In the Debian folder there is a sample `.env` file. To use it, add parameter `-v debian-example/.env:/gw-scripts/globals.env`.
+---
 
 ## Features
 
-gw-scripts provides the following scripts to help you set up and manage your WireGuard servers and peers:
+- Declarative environment-based configuration
+- Simple `up`, `down`, `reload`, and status scripts for server control
+- Peer management tools: add, remove, enable, disable
+- Docker-first: works seamlessly in isolated containers
+- Optional support for CoreDNS and IP routing/firewall customization
+- Convert from existing LinuxServer WireGuard setups
 
-- `wg_down.sh`: This script brings down the `wg` server (all device interfaces).
-- `wg_up.sh`: This script brings up the `wg` server (all device interfaces).
-- `wg_reload.sh`: This script performs a hot reload of a single device interface that won't disrupt active sessions.
-- `wg_server_create.sh`: This script creates a new server device interface. Use option `-L` to list existing servers.
-    - It makes a directory at `/config/server_DEVINT`.
-    - It makes a new server file in `config/wg_confs/DEVINT.conf`.
-- `wg_server_destroy.sh`: This script deletes all references to a server by its device interface.
-    - It deletes the directory at `/config/server_DEVINT`.
-    - It deletes the server file in `config/wg_confs/DEVINT.conf`.
-- `wg_server_status.sh`: This script shows a status listing of all peers for a single device interface and includes these outputs:
-    - `Address`, `Endpoint`, `Last-Handshake`, `TransferRx` and `TransferTx`
-    - Results embed `user-device.json` in the key `userDevice`
-    - It is a tweaked version of `wg-json` found in [wireguard-tools contribs](https://github.com/WireGuard/wireguard-tools/blob/master/contrib/json/wg-json)
-- `wg_peer_list.sh`: This script retrieves a listing of peers for a specified device interface (`DEVINT`), with optional filters for `PEERID`, `USERID`, or specific file types (`conf`, `png`, `json`).
-    - The script fetches data directly from the server directory (`/config/server_DEVINT/peer_PEERID`) using the specified parameters.
-    - Outputs include peer configuration files (`peer_PEERID.conf`), QR codes (`peer_PEERID.png`), or user-device details (`user-device.json`) as JSON objects or binary data.
-    - Uses: Helps to manage and retrieve peer-specific configurations, enabling quick access to peer data and metadata.
-- `wg_peer_new.sh`: This script creates a new peer (aka client) by DEVINT using a PEERID and optional USERID.
-    - It makes a directory under the server folder `/config/server_DEVINT/peer_PEERID`.
-    - It updates the entry in `config/wg_confs/DEVINT.conf`.
-    - If using USERID, a "user-device.json" file is created inside the peer directory.
-- `wg_peer_disable.sh`: This script disables a peer by DEVINT and PEERID.
-    - It extracts PEERID info, removing it from `config/wg_confs/DEVINT.conf`.
-    - It saves the extracted info as `disabled.conf` under the peer folder.
-- `wg_peer_enable.sh`: This script enables a disabled peer by DEVINT and PEERID.
-    - It discovers if the peer has a corresponding `disabled.conf` under its folder.
-    - It appends `disabled.conf` to the end of `config/wg_confs/DEVINT.conf`.
-    - It removes `disabled.conf`.
-- `wg_peer_remove.sh`: This script removes a peer (aka client) by DEVINT and PEERID or USERID.
-    - It deletes the directory under the server folder `/config/server_DEVINT/peer_PEERID`.
-    - It removes the peer info in `config/wg_confs/DEVINT.conf`.
-- `wg_convert_from_linuxserver.sh`: This script converts a linuxserver `/config` directory to the `gw-scripts` format.
-    - peer directories are moved to under the server_DEVINT directory
-    - peer names receive BEGIN/END blocks inside `config/wg_confs/DEVINT.conf`.
-- `wg_unit_tests.sh`: Used to verify scripts.
+---
 
-## Roll-Your-Own
+## Quick Start with Docker
 
-To roll-your-own gw-scripts, you need to have Docker and Docker Compose installed on your system. 
-
-1. Clone our repository to your local drive:
+### Option 1: Standalone `docker run`
 
 ```bash
-git clone https://github.com/tigsus/gw-scripts.git
-cd gw-scripts
+docker run -d \
+  --name gw-scripts \
+  --cap-add NET_ADMIN \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e TZ=America/Chicago \
+  -v ./required.env:/gw-scripts/globals.env \
+  --restart unless-stopped \
+  tigsus/gw-scripts:1.0.20210914-11
+````
+
+### Option 2: `docker-compose.yml`
+
+```yaml
+services:
+  gw-scripts:
+    image: tigsus/gw-scripts:1.0.20210914-11
+    container_name: ${GWContainerName}
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${GWContainerWGTimeZone:-America/Chicago}
+    volumes:
+      - ./required.env:/gw-scripts/globals.env
+    ports:
+      - "${GWHostWGPort:-51820}:51820/udp"
+    sysctls:
+      - net.ipv4.ip_forward=1
+    restart: unless-stopped
 ```
 
-2. Make your changes to the source.
-
-## Docker Build
-
-Update the Dockerfile with the desired [version](https://hub.docker.com/r/linuxserver/wireguard/tags) of [linuxserver/wireguard](https://hub.docker.com/r/linuxserver/wireguard). For custom-builds, replace our repo information `tigsus/gw-scripts` with your own. 
-
-```bash
-docker build --build-arg BUILD_DATE="$(date +%Y%m%d)" --build-arg VERSION="1.0.20210914-9" -t tigsus/gw-scripts:1.0.20210914-9 .
-```
-
-## Docker Compose
-
-Build the Docker container, then run the sample docker compose file.
-
-1. Run the Docker Compose command to start the WireGuard server and the gw-scripts container:
+Run with:
 
 ```bash
 docker compose up -d
 ```
 
-2. Check the logs to see if everything is working:
+---
+
+## Directory Layout
 
 ```bash
-docker compose logs -f
+.
+├── required.env           # Required configuration variables
+├── docker-compose.yml     # Optional for compose-based setups
+└── gw-scripts/            # Inside container: script directory
 ```
 
-## Usage
+---
 
-To use gw-scripts, you need to access the gw-scripts container and run the scripts from there. 
-You can do this by using the following command:
+## Required Environment Variables (`required.env`)
+
+These control the server’s behavior, subnet, and IP addressing:
+
+```env
+# Core Variables
+GWHostSystemCtlServiceName=gw.service
+GWExternalServerUrl=your.vpn.example.com
+GWExternalServerPort=1820
+GWHostIP=10.10.10.10/24
+GWHostWGPort=1820
+GWDockerHostNetName=wgNet101
+GWDockerHostNetGW=172.24.101.1
+GWDockerHostNetGWSubnet=172.24.101.0/24
+GWDockerHostContainerIP=172.24.101.2
+GWContainerName=gw-unit-tests
+GWContainerWGTimeZone=America/Chicago
+GWContainerWGDevice=wg0
+GWContainerWGGW=192.168.55.1
+GWContainerWGPort=51820
+GWContainerWGSubnet=192.168.55.0
+GWContainerWGMask=255.255.255.0
+GWContainerWGSubnetMask=192.168.55.0/24
+GWContainerWGPeerDNS=
+GWContainerWGAllowedIPs=
+GWContainerWGPersistKeepAlive=
+GWServerMode=true
+GWUseCoreDNS=false
+GWFWRulesType=routable
+
+# Optional Enhancements
+GWHostWebPort=443
+GWFWRulesWGToLAN=
+GWFWRulesLANToWG=
+GWFWHostRulesFile=
+GWFWContainerRulesFile=
+```
+
+---
+
+## Available Scripts
+
+Run any of these from inside the container (`docker exec -it gw-scripts bash` → `cd /gw-scripts`):
+
+* `wg_up.sh` – Start the WireGuard interface
+* `wg_down.sh` – Stop the WireGuard interface
+* `wg_reload.sh` – Hot reload configuration
+* `wg_server_create.sh` – Create a new device (e.g. `wg0`)
+* `wg_server_destroy.sh` – Remove a device and its peers
+* `wg_server_status.sh` – Show peer and traffic status
+* `wg_peer_new.sh` – Add a peer
+* `wg_peer_remove.sh` – Delete a peer
+* `wg_peer_disable.sh` / `wg_peer_enable.sh` – Toggle peer state
+* `wg_peer_list.sh` – List peers
+* `wg_convert_from_linuxserver.sh` – Migrate from `linuxserver/wireguard`
+* `wg_unit_tests.sh` – Test scripts and environment setup
+
+---
+
+## Example Usage
 
 ```bash
 docker exec -it gw-scripts bash
-```
-
-This will open a bash shell inside the gw-scripts container.
-Next, enter the gw-scripts folder, as follows:
-
-```bash
 cd /gw-scripts
-```
 
-From there, you can run the scripts as you wish. 
-For example, to create a new server device interface named `wg0`, you can run:
-
-```bash
 ./wg_server_create.sh -D wg0
-```
-
-To create a new peer for the `wg0` server with the peer ID `1`, you can run:
-
-```bash
-./wg_peer_new.sh -D wg0 -p PEER1
-```
-
-To disable the peer with the ID `PEER1` for the `wg0` server, you can run:
-
-```bash
-./wg_peer_disable.sh -D wg0 -p PEER1
-```
-
-To enable the disabled peer with the ID `PEER1` for the `wg0` server, you can run:
-
-```bash
-./wg_peer_enable.sh -D wg0 -p PEER1
-```
-
-To remove the peer with the ID `PEER1` for the `wg0` server, you can run:
-
-```bash
-./wg_peer_remove.sh -D wg0 -p PEER1
-```
-
-To bring up the wireguard server, you can run:
-
-```bash
+./wg_peer_new.sh -D wg0 -p peer1
 ./wg_up.sh
-```
-
-To bring down the entire wireguard server, you can run:
-
-```bash
-./wg_down.sh
-```
-
-To perform a hot reload of the `wg0` server, you can run:
-
-```bash
-./wg_reload.sh -D wg0
-```
-
-To view the status of the `wg0` server, including `Address`, `Endpoint`, `Last-Handshake`, `TransferRx` and `TransferTx`, you can run:
-
-```bash
 ./wg_server_status.sh -D wg0
 ```
 
-To delete the `wg0` server and all its references, you can run:
+---
+
+## 🛠 Development
+
+To rebuild the image locally:
 
 ```bash
-./wg_server_destroy.sh -D wg0
+docker build \
+  --build-arg BUILD_DATE="$(date +%Y%m%d)" \
+  --build-arg VERSION="1.0.20210914-11" \
+  -t tigsus/gw-scripts:1.0.20210914-11 .
 ```
 
-To convert from a linuxserver file structure, in Docker mount the directory to convert from (eg `/from-configs`). 
-See the comment in docker-compose.yml for a mount example. It is best to run on a clean installation.
-Then run the convertor script:
+---
 
-```bash
-./wg_convert_from_linuxserver.sh -D wg0 -F "/from-configs"
-```
+## To-Do
 
-To verify scripts, run the included unit-tester. If it errors, the script exits immediately, 
-allowing one to inspect the current state for debugging purposes.
+These are known issues or areas for improvement in the current codebase:
 
-```bash
-./wg_unit_tests.sh -D wg0
-```
+* ⚠️ **Fix `wg_convert_from_linuxserver.sh`**: This script is currently broken due to recent changes in the internal file or environment handling. Needs review and correction to restore compatibility with legacy `linuxserver/wireguard` setups.
+* 🧹 **Simplify CoreDNS logic in `wg_server_create.sh` and `wg_peer_new.sh`**: The current parameter structure and toggles for CoreDNS are more complex than necessary. This is a result of attempting to allow DNS-related configuration without reapplying `linuxserver`-style `svc-coredns` settings, which led to overcompensation. We should be able to purge CoreDNS in those scripts.
 
-## Breaking Changes
-
-The jump from an existing installation of [linuxserver/docker-wireguard](https://github.com/linuxserver/docker-wireguard) to using gw-scripts is not immediate. 
-There are breaking changes. Here are some of them:
-
-- All servers (e.g. `wg0`) are identified as device interfaces (`DEVINT`).
-- New servers are created via `wg_server_create.sh`.
-- A new server folder gets created in `/config/server_DEVINT`.
-    - New peers are added between BEGIN/END delimiters to assure ease of extraction.
-- Peers are created **under** the server folder and not at the level of `/config`.
-- No auto-creation of peers. Why? Syntax differences and unwanted re-synchronization updates. Initialize with `SERVER_MODE=true` to avoid `USECOREDNS` logic.
-    - > Note: This could be added back but in a way that plays nice with gw-scripts.
-- We commented out the `iptable` rules in `/defaults/server.conf`.
-
-## Contributing
-
-gw-scripts is an open source project and we welcome contributions from anyone who is interested. If you want to contribute to gw-scripts, please follow these steps:
-
-1. Fork this repository and create a new branch for your feature or bug fix.
-2. Make your changes and commit them with a clear and descriptive message.
-3. Push your branch to your forked repository and create a pull request to the main repository.
-4. Wait for the maintainers to review and merge your pull request.
-
-Please make sure to follow the code style and conventions of the project, and to test your changes before submitting a pull request. You can also check the [issues](https://github.com/tigsus/gw-scripts/issues) page to see if there are any open tasks that you can help with.
+---
 
 ## License
 
-gw-scripts is licensed under the [GPL Version 3](LICENSE). See the [LICENSE](LICENSE) file for more details.
+Licensed under [GPLv3](LICENSE).
 
+---
+
+For bugs, improvements, or contributions, visit [https://github.com/tigsus/gw-scripts](https://github.com/tigsus/gw-scripts).

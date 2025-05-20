@@ -1,132 +1,153 @@
 #!/bin/bash
-# SPDX-License-Identifier: GPL-2.0
-#
-# Copyright (C) 2015-2020 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
-# https://github.com/WireGuard/wireguard-tools/blob/master/contrib/json/wg-json
 
-ARG_DEVINT=
+set -e
+
+ARG_DEVINT=""
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CLI
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-function usage {
-    echo "Usage: $0 -D <DEVINT> [PARAMS]"
-    echo "  parameters:"
-    echo "   -h    help"
-    echo "   -D    device interface"
+usage() {
+    echo "Usage: $0 [-D <DEVICE_INTERFACE>]"
+    echo "  Parameters:"
+    echo "   -h    Help"
+    echo "   -D    WireGuard device interface to inspect (optional; default is all)"
 }
 
 while getopts "hD:" opt; do
   case $opt in
-    D) # device interface
-        ARG_DEVINT=${OPTARG}
-        ;;
-    h | *) # display help
-        usage
-        exit 0
-        ;;
-    \?)
-        set +x
-        echo "Invalid option: -$OPTARG" >&2
-        usage
-        exit 1
-        ;;
-    :)
-        set +x
-        echo "Option -$OPTARG requires an argument." >&2
-        usage
-        exit 1
-        ;;
+    D) ARG_DEVINT=${OPTARG} ;;
+    h | *) usage; exit 0 ;;
+    \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
+    :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
   esac
 done
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_DEVINT CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# VALIDATIONS
+#!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Check if ARG_DEVINT is empty string
-if [[ -z "$ARG_DEVINT" ]]; then
-    echo "Parameter -D (DEVINT) is required. Use -h for help."
+if ! command -v wg >/dev/null 2>&1; then
+    echo "Error: 'wg' command not found."
     exit 1
 fi
 
-WG_CONF_FILE=/config/wg_confs/${ARG_DEVINT}.conf
-if [[ ! -f "${WG_CONF_FILE}" ]]; then
-    echo "failed: wg_conf file not found for device interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
-    exit 1
+if [[ -n "$ARG_DEVINT" ]]; then
+    WG_CONF_FILE="/config/wg_confs/${ARG_DEVINT}.conf"
+    SERVER_DIR="/config/server_${ARG_DEVINT}"
+    if [[ ! -f "$WG_CONF_FILE" || ! -d "$SERVER_DIR" ]]; then
+        echo "Error: Device interface $ARG_DEVINT not properly configured."
+        exit 1
+    fi
 fi
 
-SERVER_DIR="/config/server_${ARG_DEVINT}"
-if [[ ! -d "${SERVER_DIR}" ]]; then
-    echo "failed: server directory not found for device interface ${ARG_DEVINT} at ${SERVER_DIR}"
-    exit 1
-fi
+# ─── Generate JSON
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_DEVINT CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-#exec < <(exec wg show ${ARG_DEVINT} dump)
-exec < <(exec wg show all dump)
+exec < <(wg show all dump)
 
 printf '{'
-while read -r -d $'\t' device; do
-    if [[ $device == "${ARG_DEVINT}" ]]; then
-        if [[ $device != "$last_device" ]]; then
-            [[ -z $last_device ]] && printf '\n' || printf '%s,\n' "$end"
-            last_device="$device"
-            read -r private_key public_key listen_port fwmark
-            printf '\t"%s": {' "$device"
-            delim=$'\n'
-            [[ $private_key == "(none)" ]] || { printf '%s\t\t"privateKey": "%s"' "$delim" "$private_key"; delim=$',\n'; }
-            [[ $public_key == "(none)" ]] || { printf '%s\t\t"publicKey": "%s"' "$delim" "$public_key"; delim=$',\n'; }
-            [[ $listen_port == "0" ]] || { printf '%s\t\t"listenPort": %u' "$delim" $(( $listen_port )); delim=$',\n'; }
-            [[ $fwmark == "off" ]] || { printf '%s\t\t"fwmark": %u' "$delim" $(( $fwmark )); delim=$',\n'; }
-            printf '%s\t\t"peers": {' "$delim"; end=$'\n\t\t}\n\t}'
-            delim=$'\n'
-        else
-            read -r public_key preshared_key endpoint allowed_ips latest_handshake transfer_rx transfer_tx persistent_keepalive
-            printf '%s\t\t\t"%s": {' "$delim" "$public_key"
-            delim=$'\n'
-            
-            ### Embed the peer's user-device.json file
-            filePeerPub=$(grep -rl "$public_key" /config/server_$last_device/peer_*)
-            
-            if [[ -n "$filePeerPub" ]]; then
-                peer_dir=$(dirname "$filePeerPub")
-                user_device_json="$peer_dir/user-device.json"
-                
-                if [[ -f "$user_device_json" ]]; then
-                    user_device_data=$(cat "$user_device_json" | tr -d '\n' | tr -d '\r')
-                    printf '%s				"userDevice": %s' "$delim" "$user_device_data"
-                    delim=$',\n'
-                fi
-            fi
+first_device=true
+delim=$'\n'
 
-            [[ $preshared_key == "(none)" ]] || { printf '%s\t\t\t\t"presharedKey": "%s"' "$delim" "$preshared_key"; delim=$',\n'; }
-            [[ $endpoint == "(none)" ]] || { printf '%s\t\t\t\t"endpoint": "%s"' "$delim" "$endpoint"; delim=$',\n'; }
-            [[ $latest_handshake == "0" ]] || { printf '%s\t\t\t\t"latestHandshake": %u' "$delim" $(( $latest_handshake )); delim=$',\n'; }
-            [[ $transfer_rx == "0" ]] || { printf '%s\t\t\t\t"transferRx": %u' "$delim" $(( $transfer_rx )); delim=$',\n'; }
-            [[ $transfer_tx == "0" ]] || { printf '%s\t\t\t\t"transferTx": %u' "$delim" $(( $transfer_tx )); delim=$',\n'; }
-            [[ $persistent_keepalive == "off" ]] || { printf '%s\t\t\t\t"persistentKeepalive": %u' "$delim" $(( $persistent_keepalive )); delim=$',\n'; }
-            printf '%s\t\t\t\t"allowedIps": [' "$delim"
-            delim=$'\n'
-            if [[ $allowed_ips != "(none)" ]]; then
-                old_ifs="$IFS"
-                IFS=,
-                for ip in $allowed_ips; do
-                    printf '%s\t\t\t\t\t"%s"' "$delim" "$ip"
-                    delim=$',\n'
-                done
-                IFS="$old_ifs"
-                delim=$'\n'
-            fi
-            printf '%s\t\t\t\t]' "$delim"
-            printf '\n\t\t\t}'
-            delim=$',\n'
-        fi
+while read -r -d $'\t' device; do
+    read -r private_key public_key listen_port fwmark
+
+    # Filter if device mismatch
+    if [[ -n "$ARG_DEVINT" && "$device" != "$ARG_DEVINT" ]]; then
+        # Skip until next device
+        while read -r _; do
+            [[ "$REPLY" == "$device" ]] && break
+        done
+        continue
     fi
+
+    [[ "$first_device" == true ]] && first_device=false || printf ',\n'
+    printf '\n\t"%s": {' "$device"
+
+    # Device attributes
+    inner_delim=$'\n'
+    [[ "$private_key" == "(none)" ]] || { printf '%s\t\t"privateKey": "%s"' "$inner_delim" "$private_key"; inner_delim=$',\n'; }
+    [[ "$public_key" == "(none)" ]] || { printf '%s\t\t"publicKey": "%s"' "$inner_delim" "$public_key"; inner_delim=$',\n'; }
+    [[ "$listen_port" == "0" ]] || { printf '%s\t\t"listenPort": %u' "$inner_delim" "$((listen_port))"; inner_delim=$',\n'; }
+    [[ "$fwmark" == "off" ]] || { printf '%s\t\t"fwmark": %u' "$inner_delim" "$((fwmark))"; inner_delim=$',\n'; }
+
+    # Start peers block
+    printf '%s\t\t"peers": {' "$inner_delim"
+    peer_first=true
+
+    while read -r peer_device peer_public_key preshared_key endpoint allowed_ips latest_handshake transfer_rx transfer_tx persistent_keepalive; do
+        if [[ "$peer_device" != "$device" ]]; then
+            # Put back the line for the next device
+            REPLY="$peer_device"$'\t'"$peer_public_key"$'\t'"$preshared_key"$'\t'"$endpoint"$'\t'"$allowed_ips"$'\t'"$latest_handshake"$'\t'"$transfer_rx"$'\t'"$transfer_tx"$'\t'"$persistent_keepalive"
+            break
+        fi
+
+        [[ "$peer_first" == true ]] && peer_first=false || printf ',\n'
+        printf '\n\t\t\t"%s": {' "$peer_public_key"
+
+        attr_delim=$'\n'
+
+        # Optional user device embed
+        filePeerPub=$(grep -rl "$peer_public_key" /config/server_"$device"/peer_* 2>/dev/null || true)
+        if [[ -n "$filePeerPub" ]]; then
+            peer_dir=$(dirname "$filePeerPub")
+            user_device_json="$peer_dir/user-device.json"
+
+            if [[ -f "$user_device_json" ]]; then
+                user_device_data=$(tr -d '\n\r' < "$user_device_json")
+                printf '%s\t\t\t\t"userDevice": %s' "$attr_delim" "$user_device_data"
+                attr_delim=$',\n'
+            fi
+        fi
+
+        [[ "$preshared_key" == "(none)" ]] || { printf '%s\t\t\t\t"presharedKey": "%s"' "$attr_delim" "$preshared_key"; attr_delim=$',\n'; }
+        [[ "$endpoint" == "(none)" ]] || { printf '%s\t\t\t\t"endpoint": "%s"' "$attr_delim" "$endpoint"; attr_delim=$',\n'; }
+
+        if [[ "$latest_handshake" =~ ^[0-9]+$ ]]; then
+            printf '%s\t\t\t\t"latestHandshake": %u' "$attr_delim" "$latest_handshake"
+            attr_delim=$',\n'
+        fi
+
+        if [[ "$transfer_rx" =~ ^[0-9]+$ ]]; then
+            printf '%s\t\t\t\t"transferRx": %u' "$attr_delim" "$transfer_rx"
+            attr_delim=$',\n'
+        fi
+
+        if [[ "$transfer_tx" =~ ^[0-9]+$ ]]; then
+            printf '%s\t\t\t\t"transferTx": %u' "$attr_delim" "$transfer_tx"
+            attr_delim=$',\n'
+        fi
+
+        if [[ "$persistent_keepalive" =~ ^[0-9]+$ ]]; then
+            printf '%s\t\t\t\t"persistentKeepalive": %u' "$attr_delim" "$persistent_keepalive"
+            attr_delim=$',\n'
+        fi
+
+        # Allowed IPs
+        printf '%s\t\t\t\t"allowedIps": [' "$attr_delim"
+        ip_delim=$'\n'
+
+        if [[ "$allowed_ips" != "(none)" && -n "$allowed_ips" ]]; then
+            old_ifs="$IFS"
+            IFS=,
+            read -ra ip_array <<< "$allowed_ips"
+            for i in "${!ip_array[@]}"; do
+                printf '%s\t\t\t\t\t"%s"' "$ip_delim" "${ip_array[$i]}"
+                if [[ $i -lt $((${#ip_array[@]} - 1)) ]]; then
+                    printf ','
+                fi
+                ip_delim=$'\n'
+            done
+            IFS="$old_ifs"
+        fi
+
+        printf '%s\t\t\t\t]' "$ip_delim"
+        printf '\n\t\t\t}'
+    done
+
+    printf '\n\t\t}' # End peers block
+    printf '\n\t}'   # End device block
 done
-printf '%s\n' "$end"
-printf '}\n'
+
+printf '\n}\n'

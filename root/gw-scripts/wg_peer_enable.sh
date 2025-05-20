@@ -1,89 +1,63 @@
 #!/bin/bash
 
-ARG_DEVINT=
-ARG_PEER=
+set -e
+
+ARG_DEVINT=""
+ARG_PEER=""
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CLI
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-function usage {
-    echo "Usage: $0 -D <DEVINT> -p <PEER> [PARAMS]"
-    echo "  parameters:"
-    echo "   -h    help"
-    echo "   -D    device interface"
-    echo "   -p    peer ID"
+usage() {
+    echo "Usage: $0 -D <DEVINT> -p <PEER>"
+    echo "  Parameters:"
+    echo "   -h    Help"
+    echo "   -D    Device interface"
+    echo "   -p    Peer ID"
 }
 
 while getopts "hp:D:" opt; do
   case $opt in
-    D) # device interface
-        ARG_DEVINT=${OPTARG}
-        ;;
-    p) # peer name/identifier
-        ARG_PEER=${OPTARG}
-        ;;
-    h | *) # display help
-        usage
-        exit 0
-        ;;
-    \?)
-        set +x
-        echo "Invalid option: -$OPTARG" >&2
-        usage
-        exit 1
-        ;;
-    :)
-        set +x
-        echo "Option -$OPTARG requires an argument." >&2
-        usage
-        exit 1
-        ;;
+    D) ARG_DEVINT=${OPTARG} ;;
+    p) ARG_PEER=${OPTARG} ;;
+    h) usage; exit 0 ;;
+    *) usage >&2; exit 1 ;;
   esac
 done
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_DEVINT CHECKS
+# VALIDATIONS
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Check if ARG_DEVINT is empty string
 if [[ -z "$ARG_DEVINT" ]]; then
-    echo "Parameter -D (DEVINT) is required. Use -h for help."
+    echo "Error: -D (DEVINT) is required." >&2
     exit 1
 fi
 
-WG_CONF_FILE=/config/wg_confs/${ARG_DEVINT}.conf
-if [[ ! -f "${WG_CONF_FILE}" ]]; then
-    echo "failed: wg_conf file not found for device interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
-    exit 1
-fi
-
+WG_CONF_FILE="/config/wg_confs/${ARG_DEVINT}.conf"
 SERVER_DIR="/config/server_${ARG_DEVINT}"
-if [[ ! -d "${SERVER_DIR}" ]]; then
-    echo "failed: server directory not found for device interface ${ARG_DEVINT} at ${SERVER_DIR}"
+
+if [[ ! -f "$WG_CONF_FILE" ]]; then
+    echo "Error: WireGuard config not found at $WG_CONF_FILE" >&2
     exit 1
 fi
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_PEER CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+if [[ ! -d "$SERVER_DIR" ]]; then
+    echo "Error: Server directory not found at $SERVER_DIR" >&2
+    exit 1
+fi
 
-# Check if ARG_PEER is empty string
 if [[ -z "$ARG_PEER" ]]; then
-    echo "Parameter -p (PEER) is required. Use -h for help."
+    echo "Error: -p (PEER) is required." >&2
     exit 1
 fi
 
-# Ensure ARG_PEER has the prefix "peer_"
-if [[ "$ARG_PEER" != peer_* ]]; then
-    ARG_PEER="peer_$ARG_PEER"
-fi
+[[ "$ARG_PEER" != peer_* ]] && ARG_PEER="peer_$ARG_PEER"
+PEER_DIR="$SERVER_DIR/$ARG_PEER"
 
-PEER_DIR=$SERVER_DIR/${ARG_PEER}
-
-# Check if ARG_PEER already has created directory
-if [[ ! -d "${PEER_DIR}" ]]; then
-    echo "failed to locate ${ARG_PEER} at ${PEER_DIR}"
+if [[ ! -d "$PEER_DIR" ]]; then
+    echo "Error: Peer directory $PEER_DIR does not exist." >&2
     exit 1
 fi
 
@@ -91,55 +65,46 @@ fi
 # ENABLE
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-DISABLED_FILE=${PEER_DIR}/disabled.conf
+DISABLED_FILE="$PEER_DIR/disabled.conf"
 
-# Check if DISABLED_FILE is present; already disabled
-if [[ ! -f "${DISABLED_FILE}" ]]; then
-    echo "disabled file not found at ${DISABLED_FILE}"
-    exit 0
+if [[ ! -f "$DISABLED_FILE" ]]; then
+    echo "Error: disabled file not found at $DISABLED_FILE" >&2
+    exit 1
 fi
 
-# append
-cat $DISABLED_FILE >> $WG_CONF_FILE
-# add an empty line
-echo "" >> $WG_CONF_FILE
-
-# Check if the operation was successful
-if [ $? -eq 0 ]; then
-    echo "success: server config block updated at $WG_CONF_FILE"
+if cat "$DISABLED_FILE" >> "$WG_CONF_FILE"; then
+    echo "Success: appended disabled block back into $WG_CONF_FILE"
+else
+    echo "Error: failed appending $DISABLED_FILE into $WG_CONF_FILE" >&2
+    exit 1
 fi
 
-# Use sed to collapse multiple empty lines into a single empty line
-sed -i '/^$/N;/\n$/D' $WG_CONF_FILE
+# Add empty line for neatness
+echo "" >> "$WG_CONF_FILE"
 
-# Check if the operation was successful
-if [ $? -eq 0 ]; then
-    echo "success: multiple empty lines replaced in $WG_CONF_FILE"
+# ─── Collapse Empty Lines
+if sed -i '/^$/N;/\n$/D' "$WG_CONF_FILE"; then
+    echo "Success: cleaned up empty lines in $WG_CONF_FILE"
 fi
 
-# Double-check server file is correct
-# Extract text between # BEGIN and # END markers and save it to a variable
+# ─── Validate Re-Addition
 EXTRACTED_TEXT=$(sed -n "/# BEGIN $ARG_PEER/,/# END $ARG_PEER/p" "$WG_CONF_FILE")
 
-# Check if the operation was successful
-if [ ! $? -eq 0 ]; then
-    echo "failed locating $ARG_PEER in $WG_CONF_FILE"
-    exit 1
-fi
-
 if [[ -z "$EXTRACTED_TEXT" ]]; then
-    echo "failed enabling $ARG_PEER at $WG_CONF_FILE"
+    echo "Error: After enabling, block for $ARG_PEER not found in $WG_CONF_FILE" >&2
     exit 1
+else
+    echo "Success: block for $ARG_PEER confirmed in $WG_CONF_FILE"
 fi
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # REMOVE DISABLED FILE
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-if rm -r "${DISABLED_FILE}"; then
-    echo "success: removed disabled file ${DISABLED_FILE}"
+if rm -f "$DISABLED_FILE"; then
+    echo "Success: removed disabled file $DISABLED_FILE"
 else
-    echo "failed removal of disabled file ${DISABLED_FILE}"
+    echo "Error: failed to remove $DISABLED_FILE" >&2
     exit 1
 fi
 
@@ -147,26 +112,31 @@ fi
 # UPDATE USER-DEVICE
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-FILE_USERDEVICE=${PEER_DIR}/user-device.conf
-if [[ -f "${FILE_USERDEVICE}" ]]; then
-    # Use sed to replace the value of 'DISABLED=' with the new value
-    sed -i "s/^DISABLED=.*/DISABLED=false/" "$FILE_USERDEVICE"
-    echo "success: updated ${FILE_USERDEVICE}"
+FILE_USERDEVICE="$PEER_DIR/user-device.conf"
+if [[ -f "$FILE_USERDEVICE" ]]; then
+    if sed -i "s/^DISABLED=.*/DISABLED=false/" "$FILE_USERDEVICE"; then
+        echo "Success: updated DISABLED=false in $FILE_USERDEVICE"
+    else
+        echo "Error: failed updating $FILE_USERDEVICE" >&2
+        exit 1
+    fi
 else
-    FILE_USERDEVICE=${PEER_DIR}/user-device.json
-    FILE_USERDEVICE_TEMP=${PEER_DIR}/temp-user-device.json
-    if [[ -f "${FILE_USERDEVICE}" ]]; then
-        # Use jq to replace the value of 'disabled' with 'false' and output to a temp file
-        if ! jq '.disabled = false' "${FILE_USERDEVICE}" > "${FILE_USERDEVICE_TEMP}"; then
-          echo "jq operation failed."
-          # Delete the temp file if jq failed
-          rm -f "${FILE_USERDEVICE_TEMP}"
-          exit 1
+    FILE_USERDEVICE="$PEER_DIR/user-device.json"
+    if [[ -f "$FILE_USERDEVICE" ]]; then
+        TMP_JSON="$PEER_DIR/temp-user-device.json"
+        if jq '.disabled = false' "$FILE_USERDEVICE" > "$TMP_JSON"; then
+            if mv "$TMP_JSON" "$FILE_USERDEVICE"; then
+                echo "Success: updated DISABLED=false in $FILE_USERDEVICE"
+            else
+                echo "Error: failed to move updated $FILE_USERDEVICE" >&2
+                exit 1
+            fi
+        else
+            echo "Error: jq failed modifying $FILE_USERDEVICE" >&2
+            rm -f "$TMP_JSON"
+            exit 1
         fi
-        
-        # If jq succeeded, move the temp file to the original file
-        mv "${FILE_USERDEVICE_TEMP}" "${FILE_USERDEVICE}"
-
-        echo "success: updated ${FILE_USERDEVICE}"
     fi
 fi
+
+exit 0

@@ -1,22 +1,54 @@
 #!/bin/bash
 
+set -euo pipefail
+
+# ─── Global Variables
 ARG_DEVINT=
 ARG_SERVERURL=
 ARG_SERVERPORT=
 ARG_PEERDNS=
 ARG_INTERNAL_SUBNET=
 ARG_ALLOWEDIPS=
-ARG_DOPERSISTANTKEEPALIVES=false
+ARG_PERSISTENT_KEEPALIVE=
+ARG_USE_COREDNS=false
+ARG_VERBOSE=false
+
+# ─── Load Global Configuration
+if [[ -f /gw-scripts/globals.env ]]; then
+    source /gw-scripts/globals.env
+else
+    echo "**** [ERROR] globals.env not found at /gw-scripts/globals.env. Aborting. ****"
+    exit 1
+fi
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # Functions
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-function list_servers {
+resolve_arg() {
+    local arg_value="$1"
+    local fallback_env="$2"
+    local default="$3"
+    [[ -n "$arg_value" ]] && echo "$arg_value" || echo "${!fallback_env:-$default}"
+}
+
+normalize_bool() {
+    [[ "$1" == "true" ]] && echo "true" || echo "false"
+}
+
+is_positive_integer() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -gt 0 ]]
+}
+
+debug() {
+    if $ARG_VERBOSE; then
+        echo "[DEBUG] $1"
+    fi
+}
+
+list_servers() {
     SERVER_DIR_PREFIX="/config/server_"
     SERVERS=()
-    
-    # Loop through directories matching the prefix
     for SERVER_DIR in ${SERVER_DIR_PREFIX}*; do
         if [[ -d "$SERVER_DIR" ]]; then
             SERVER_NAME=$(basename "$SERVER_DIR" | sed "s/server_//")
@@ -24,15 +56,9 @@ function list_servers {
         fi
     done
 
-    # Print JSON array
-    # examples:
-    # empty = []
-    # one   = ["wg1"]
-    # multi = ["wg1","wg2"]
     if [[ ${#SERVERS[@]} -eq 0 ]]; then
-        echo "[]" # Empty JSON array
+        echo "[]"
     else
-        # Use printf to join elements with a comma
         echo "[${SERVERS[*]}]" | sed 's/ /,/g'
     fi
     exit 0
@@ -53,177 +79,150 @@ function usage {
     echo "   -S    internal subnet"
     echo "   -A    allowed-ips"
     echo "   -K    persistant keep alive (default: false)"
+    echo "   -R    path to file with custom iptables or other PostUp/PostDown rules (optional)"
+    echo "   -C    enable CoreDNS support (true|false)"
     echo "   -L    list servers"
+    echo "   -v    enable verbose (debug) output"
 }
 
-while getopts "hD:U:P:N:S:A:K:L" opt; do
-  case $opt in
-    D) # device interface
-        ARG_DEVINT=${OPTARG}
-        ;;
-    U) # server url
-        ARG_SERVERURL=${OPTARG}
-        ;;
-    P) # server port
-        ARG_SERVERPORT=${OPTARG}
-        ;;
-    N) # peer dns
-        ARG_PEERDNS=${OPTARG}
-        ;;
-    S) # internal subnet
-        ARG_INTERNAL_SUBNET=${OPTARG}
-        ;;
-    A) # allowed ips
-        ARG_ALLOWEDIPS=${OPTARG}
-        ;;
-    K) # persistant keep alives
-        ARG_DOPERSISTANTKEEPALIVES=${OPTARG}
-        if [[ "$ARG_DOPERSISTANTKEEPALIVES" != "true" ]]; then
-            ARG_DOPERSISTANTKEEPALIVES=false
-        fi
-        ;;
-    L) # list servers
-        list_servers
-        ;;
-    h | *) # display help
-        usage
-        exit 0
-        ;;
-    \?)
-        set +x
-        echo "Invalid option: -$OPTARG" >&2
-        usage
-        exit 1
-        ;;
-    :)
-        set +x
-        echo "Option -$OPTARG requires an argument." >&2
-        usage
-        exit 1
-        ;;
-  esac
+while getopts "hD:U:P:N:S:A:K:R:C:Lv" opt; do
+    case $opt in
+        D) ARG_DEVINT=${OPTARG} ;;
+        U) ARG_SERVERURL=${OPTARG} ;;
+        P) ARG_SERVERPORT=${OPTARG} ;;
+        N) ARG_PEERDNS=${OPTARG} ;;
+        S) ARG_INTERNAL_SUBNET=${OPTARG} ;;
+        A) ARG_ALLOWEDIPS=${OPTARG} ;;
+        K) ARG_PERSISTENT_KEEPALIVE=${OPTARG} ;;
+        R) ARG_CUSTOM_RULES_FILE=${OPTARG} ;;
+        C) ARG_USE_COREDNS=$(normalize_bool "${OPTARG}") ;;
+        L) list_servers ;;
+        v) ARG_VERBOSE=true ;;  # Enable verbose/debug output
+        h | *) usage; exit 0 ;;
+        \?) echo "Invalid option: -$OPTARG" >&2; usage; exit 1 ;;
+        :) echo "Option -$OPTARG requires an argument." >&2; usage; exit 1 ;;
+    esac
 done
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_DEVINT CHECKS
+# VALIDATION
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Check if ARG_DEVINT is empty string
 if [[ -z "$ARG_DEVINT" ]]; then
-    echo "Parameter -D (DEVINT) is required. Use -h for help."
+    echo "**** [ERROR] -D (DEVINT) parameter is required. Use -h for help. ****"
     exit 1
 fi
 
-WG_CONF_FILE=/config/wg_confs/${ARG_DEVINT}.conf
-if [[ -f "${WG_CONF_FILE}" ]]; then
-    echo "server file already found for device interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
+# ─── Resolve SERVER_DIR
+SERVER_DIR="/config/server_${ARG_DEVINT}"
+
+# ─── Load Server-Specific Configuration if Available
+if [[ -f "$SERVER_DIR/settings.env" ]]; then
+    source "$SERVER_DIR/settings.env"
+    debug "**** [INFO] Loaded server-specific settings from $SERVER_DIR/settings.env ****"
+else
+    debug "**** [INFO] No server-specific settings found for $ARG_DEVINT. Using global settings. ****"
+fi
+
+WG_CONF_FILE="/config/wg_confs/${ARG_DEVINT}.conf"
+
+if [[ -f "$WG_CONF_FILE" ]]; then
+    debug "**** [INFO] Server config already exists for ${ARG_DEVINT} at ${WG_CONF_FILE}. Skipping. ****"
     exit 0
 fi
 
-SERVER_DIR="/config/server_${ARG_DEVINT}"
-if [[ -d "${SERVER_DIR}" ]]; then
-    echo "server directory already created for device interface ${ARG_DEVINT} at ${SERVER_DIR}"
-    exit 1
+if [[ -d "$SERVER_DIR" ]]; then
+    # Allow directory if it only contains settings.env
+    if [[ "$(ls -A "$SERVER_DIR" | grep -v 'settings.env')" ]]; then
+        echo "**** [ERROR] Server directory already exists for device ${ARG_DEVINT} at ${SERVER_DIR} and contains other files. Abort. ****"
+        exit 1
+    else
+        debug "**** [INFO] Server directory exists but only contains settings.env. Proceeding with server setup. ****"
+    fi
 fi
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# VARIABLE CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# ─── Resolve Arguments Using Fallbacks
+ARG_SERVERURL=$(resolve_arg "$ARG_SERVERURL" "GWExternalServerUrl" "auto")
+ARG_SERVERPORT=$(resolve_arg "$ARG_SERVERPORT" "GWExternalServerPort" "51820")
+ARG_INTERNAL_SUBNET=$(resolve_arg "$ARG_INTERNAL_SUBNET" "GWContainerWGSubnet" "10.13.13.0")
+ARG_ALLOWEDIPS=$(resolve_arg "$ARG_ALLOWEDIPS" "GWContainerWGAllowedIPs" "0.0.0.0/0")
+ARG_PEERDNS=$(resolve_arg "$ARG_PEERDNS" "GWContainerWGPeerDNS" "auto")
+ARG_USE_COREDNS=$(normalize_bool "$(resolve_arg "$ARG_USE_COREDNS" "GWUseCoreDNS" "false")")
+ARG_PERSISTENT_KEEPALIVE=$(resolve_arg "$ARG_PERSISTENT_KEEPALIVE" "GWContainerWGPersistKeepAlive" "")
 
-if [[ -z "$ARG_SERVERURL" ]]; then
-    ARG_SERVERURL=${SERVERURL}
-fi
-if [[ -z "$ARG_SERVERURL" ]] || [[ "$ARG_SERVERURL" = "auto" ]]; then
+# ─── Derived Values
+BASE_SUBNET="${ARG_INTERNAL_SUBNET%.*}"  # Remove last octet to get base subnet
+GATEWAY_IP="${GWContainerWGGW%/*}"  # Exclude CIDR from gateway IP
+
+if [[ "$ARG_SERVERURL" == "auto" ]]; then
     ARG_SERVERURL=$(curl -s icanhazip.com)
-    echo "**** SERVERURL var is either not set or is set to \"auto\", setting external IP to auto detected value of $ARG_SERVERURL ****"
-else
-    echo "**** External server address is set to $ARG_SERVERURL ****"
+    debug "**** [INFO] Auto-detected external IP: $ARG_SERVERURL ****"
 fi
 
-if [[ -z "$ARG_SERVERPORT" ]]; then
-    ARG_SERVERPORT=${SERVERPORT:-51820}
-fi
-echo "**** External server port is set to ${ARG_SERVERPORT}. Make sure that port is properly forwarded to port 51820 inside this container ****"
-
-if [[ -z "$ARG_INTERNAL_SUBNET" ]]; then
-    ARG_INTERNAL_SUBNET=${INTERNAL_SUBNET:-10.13.13.0}
-fi
-echo "**** Internal subnet is set to $ARG_INTERNAL_SUBNET ****"
-
-INTERFACE=$(echo "$ARG_INTERNAL_SUBNET" | awk 'BEGIN{FS=OFS="."} NF--')
-
-if [[ -z "${ARG_ALLOWEDIPS}" ]]; then
-    ARG_ALLOWEDIPS=${ALLOWEDIPS:-0.0.0.0/0, ::/0}
-fi
-echo "**** AllowedIPs for peers $ARG_ALLOWEDIPS ****"
-
-if [[ -z "$ARG_PEERDNS" ]]; then
-    ARG_PEERDNS=${PEERDNS}
-fi
-if [[ -z "$ARG_PEERDNS" ]] || [[ "$ARG_PEERDNS" = "auto" ]]; then
-    ARG_PEERDNS="${INTERFACE}.1"
-    echo "**** PEERDNS var is either not set or is set to \"auto\", setting peer DNS to ${ARG_PEERDNS}.1 to use wireguard docker host's DNS. ****"
-else
-    echo "**** Peer DNS servers will be set to $ARG_PEERDNS ****"
+if [[ "$ARG_PEERDNS" == "auto" ]]; then
+    ARG_PEERDNS="${BASE_SUBNET}.1"
+    debug "**** [INFO] Auto-set Peer DNS to $ARG_PEERDNS ****"
 fi
 
-SERVERURL=${ARG_SERVERURL}
-SERVERPORT=${ARG_SERVERPORT}
-PEERDNS=${ARG_PEERDNS}
-INTERNAL_SUBNET=${ARG_INTERNAL_SUBNET}
-ALLOWEDIPS=${ARG_ALLOWEDIPS}
-DEVINT=$ARG_DEVINT
+echo "**** [INFO] Server Config:"
+echo "   Interface       : $ARG_DEVINT"
+echo "   External URL    : $ARG_SERVERURL"
+echo "   External Port   : $ARG_SERVERPORT"
+echo "   Internal Subnet : $ARG_INTERNAL_SUBNET"
+echo "   Allowed IPs     : $ARG_ALLOWEDIPS"
+echo "   Peer DNS        : $ARG_PEERDNS"
+echo "   CoreDNS Enabled : $ARG_USE_COREDNS"
+if is_positive_integer "${ARG_PERSISTENT_KEEPALIVE:-}"; then
+    echo "   PersistentKeepalive: ${ARG_PERSISTENT_KEEPALIVE} seconds"
+fi
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CREATE DIR
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-mkdir -p "${SERVER_DIR}"
-echo "success: creation of server dir for interface ${ARG_DEVINT} at ${SERVER_DIR}"
+mkdir -p "$SERVER_DIR"
+debug "**** [SUCCESS] Created server dir: $SERVER_DIR ****"
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ADAPTED FROM init-wireguard-conf/run
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# ─── CoreDNS Toggle
+echo "$ARG_USE_COREDNS" > /run/s6/container_environment/USE_COREDNS
 
-save_vars () {
-    cat <<DUDE > ${SERVER_DIR}/settings.env
-ORIG_DEVINT="$ARG_DEVINT"
-ORIG_SERVERURL="$SERVERURL"
-ORIG_SERVERPORT="$SERVERPORT"
-ORIG_PEERDNS="$PEERDNS"
-ORIG_INTERNAL_SUBNET="$INTERNAL_SUBNET"
-ORIG_INTERFACE="$INTERFACE"
-ORIG_ALLOWEDIPS="$ALLOWEDIPS"
-ORIG_DOPERSISTANTKEEPALIVES=$ARG_DOPERSISTANTKEEPALIVES
-DUDE
-}
-
-#switch_on_core_dns () {
-    # Switch to true???
-    #echo "**** Client mode selected. ****"
-    #USE_COREDNS="${USE_COREDNS,,}"
-    #printf %s "${USE_COREDNS:-false}" > /run/s6/container_environment/USE_COREDNS
-#}
-    
-save_vars
-
+# ─── Key Generation
 if [[ ! -f "${SERVER_DIR}/privatekey-server" ]]; then
     umask 077
     wg genkey | tee "${SERVER_DIR}/privatekey-server" | wg pubkey > "${SERVER_DIR}/publickey-server"
+    debug "**** [SUCCESS] WireGuard server keys created ****"
 fi
-eval "$(printf %s)
-cat <<DUDE > ${WG_CONF_FILE}
-$(cat /config/templates/server.conf)
 
-DUDE"
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# LOAD server.conf template
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Use sed to comment out lines that begin with PostUp or PostDown
-sed -i '/^PostUp/s/^/#/' ${WG_CONF_FILE}
-sed -i '/^PostDown/s/^/#/' ${WG_CONF_FILE}
+# Read and load the server.conf template
+TEMPLATE_CONTENT=$(cat /config/templates/server.conf)
 
-# Use sed to uncomment lines that begin with #PostUp or #PostDown
-#sed -i '/^#PostUp/s/^#//' "$file_to_modify"
-#sed -i '/^#PostDown/s/^#//' "$file_to_modify"
+# Auto-fix: Remove CIDR suffix (/24, /32 etc) if mistakenly included
+TEMPLATE_CONTENT=$(echo "$TEMPLATE_CONTENT" | sed -E 's#^(Address *= *[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)/[0-9]+#\1#')
 
-echo "success: creation of wg file for interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
+# Read server's generated private key
+SERVER_PRIVATE_KEY=$(< "${SERVER_DIR}/privatekey-server")
+SERVER_INTERNAL_ADDRESS="${GWContainerWGGW}"
+SERVER_INTERNAL_PORT=${GWContainerWGPort:-51820}
 
+# Handle optional custom user rules
+USER_CUSTOM_RULES=""
+if [[ -n "${ARG_CUSTOM_RULES_FILE:-}" && -f "${ARG_CUSTOM_RULES_FILE}" ]]; then
+    USER_CUSTOM_RULES=$(cat "${ARG_CUSTOM_RULES_FILE}")
+    debug "**** [INFO] Loaded custom user rules from ${ARG_CUSTOM_RULES_FILE} ****"
+fi
+
+# Perform variable substitutions
+FINAL_TEMPLATE=$(echo "$TEMPLATE_CONTENT" | \
+    sed "s|\${SERVER_PRIVATE_KEY}|${SERVER_PRIVATE_KEY}|g" | \
+    sed "s|\${SERVER_INTERNAL_ADDRESS}|${SERVER_INTERNAL_ADDRESS}|g" | \
+    sed "s|\${SERVER_INTERNAL_PORT}|${SERVER_INTERNAL_PORT}|g" | \
+    sed "s|<USER_CUSTOM_RULES>|${USER_CUSTOM_RULES}|g")
+
+# Write final server WireGuard config
+echo "$FINAL_TEMPLATE" > "$WG_CONF_FILE"
+
+debug "**** [SUCCESS] WireGuard server config created at $WG_CONF_FILE ****"

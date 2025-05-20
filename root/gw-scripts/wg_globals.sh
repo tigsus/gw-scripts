@@ -29,8 +29,13 @@ function convert_env_to_json {
 
             # Handle specific cases for data types
             case "$key" in
-                "GWContainerWGServerPort")
-                    echo "  \"$json_key\": $value"
+                "GWExternalServerPort" | "GWHostWGPort" | "GWHostWebPort" | "GWContainerWGPort" | "GWContainerWGPersistKeepAlive")
+                    # Ensure the value is a valid non-negative integer
+                    if [[ "$value" =~ ^[0-9]+$ ]] && [[ "$value" -ge 0 ]]; then
+                        echo "  \"$json_key\": $value"
+                    else
+                        echo "  \"$json_key\": 0"  # Default to 0 if value is invalid, empty, or negative
+                    fi
                     ;;
                 "GWContainerWGPeerDNS" | "GWContainerWGAllowedIPs")
                     # Convert comma-separated values into JSON array
@@ -40,8 +45,8 @@ function convert_env_to_json {
                         echo "  \"$json_key\": [$(echo "$value" | sed 's/,/","/g' | sed 's/^/"/;s/$/"/')]"
                     fi
                     ;;
-                "GWContainerWGPersistKeepAlive")
-                    # Convert value to boolean
+                "GWServerMode" | "GWUseCoreDNS")
+                    # Boolean fields
                     if [[ "$value" == "true" || "$value" == "1" ]]; then
                         echo "  \"$json_key\": true"
                     else
@@ -49,8 +54,12 @@ function convert_env_to_json {
                     fi
                     ;;
                 *)
-                    # Default case: output key-value pair as string
-                    echo "  \"$json_key\": \"$value\""
+                    # Collapse malformed quotes like """" to empty string
+                    if [[ "$value" =~ ^\"{2,}$ ]]; then
+                        echo "  \"$json_key\": \"\""
+                    else
+                        echo "  \"$json_key\": \"$value\""
+                    fi
                     ;;
             esac
         fi
@@ -73,6 +82,20 @@ function initialize_using_defaults {
     # Load the environment variables from the file
     source "$INPUT_FILE"
 
+
+    # Check if the device interface (-D) is specified and if settings.env exists
+    if [[ -n "$ARG_DEVINT" ]]; then
+        SERVER_DIR="/config/server_${ARG_DEVINT}"
+
+        # Load the server-specific settings from settings.env if it exists
+        if [[ -f "$SERVER_DIR/settings.env" ]]; then
+            echo "**** [INFO] Loading device-specific settings from $SERVER_DIR/settings.env ****"
+            source "$SERVER_DIR/settings.env"
+        else
+            echo "**** [INFO] No device-specific settings found for $ARG_DEVINT. Using global settings. ****"
+        fi
+    fi
+
     # Check if GWContainerWGDevice is set and not empty
     if [[ -z "${GWContainerWGDevice}" ]]; then
         echo "Error: GWContainerWGDevice is not set or empty in $INPUT_FILE!" >&2
@@ -87,7 +110,7 @@ function initialize_using_defaults {
     fi
 
     # Initialize SERVERURL
-    SERVERURL=${SERVERURL:-${GWContainerWGServerUrl:-myserver.example.com}}
+    SERVERURL=${SERVERURL:-${GWExternalServerUrl:-myserver.example.com}}
     if [[ -z "${SERVERURL}" ]]; then
         echo "Error: SERVERURL is not set or empty!" >&2
         exit 1
@@ -96,7 +119,7 @@ function initialize_using_defaults {
     fi
 
     # Initialize SERVERPORT
-    SERVERPORT=${SERVERPORT:-${GWContainerWGServerPort:-51820}}
+    SERVERPORT=${SERVERPORT:-${GWExternalServerPort:-51820}}
     if [[ -z "${SERVERPORT}" ]]; then
         echo "Error: SERVERPORT is not set or empty!" >&2
         exit 1
@@ -125,10 +148,11 @@ function initialize_using_defaults {
         PARAMS="${PARAMS} -A ${ALLOWEDIPS}"
     fi
 
-    # Initialize PERSISTANTKEEPALIVES
-    if [[ -n "${PERSISTANTKEEPALIVES:-${GWContainerWGPersistKeepAlive}}" ]]; then
-        PERSISTANTKEEPALIVES=true
-        PARAMS="${PARAMS} -K true"
+    # Initialize PERSISTENTKEEPALIVE, normalizing its value.
+    PERSISTENTKEEPALIVE="${PERSISTENTKEEPALIVE:-${GWContainerWGPersistKeepAlive:-}}"
+    
+    if [[ -n "${PERSISTENTKEEPALIVE}" ]]; then
+        PARAMS="${PARAMS} -K ${PERSISTENTKEEPALIVE}"
     fi
 
     # Create WireGuard server
@@ -149,9 +173,11 @@ function usage {
     echo "   -h    help"
     echo "   -j    convert globals.env to json"
     echo "   -i    initialize using defaults"
-}                                                                                
-                                                                                 
-while getopts "hji" opt; do
+    echo "   -D    specify device interface for server-specific settings"
+}
+
+# CLI Options Parsing
+while getopts "hjiD:" opt; do
   case $opt in
     j) # convert globals.env to json
         convert_env_to_json
@@ -159,18 +185,20 @@ while getopts "hji" opt; do
     i) # initialize using defaults
         initialize_using_defaults
         ;;
+    D) # device interface specified for settings.env override
+        ARG_DEVINT="${OPTARG}"
+        initialize_using_defaults
+        ;;
     h | *) # display help
         usage
         exit 0
         ;;
     \?)
-        set +x
         echo "Invalid option: -$OPTARG" >&2
         usage
         exit 1
         ;;
     :)
-        set +x
         echo "Option -$OPTARG requires an argument." >&2
         usage
         exit 1
