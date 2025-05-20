@@ -1,245 +1,228 @@
 #!/bin/bash
 
-# Define a function to get and validate the dir name of the file script                                                                                                                                    
-get_dirname() {                                                                                                                                                                                            
-  # Get the file name of the current script from the BASH_SOURCE variable                                                                                                                                  
-  filename="${BASH_SOURCE[0]}"                                                                                                                                                                             
-                                                                                                                                                                                                           
-  # Get the directory name of the file script using the dirname command                                                                                                                                    
-  dirname=$(dirname "$filename")                                                                                                                                                                           
-                                                                                                                                                                                                           
-  # Check if the directory name is empty, "", or "."                                                                                                                                                       
-  if [ -z "$dirname" ] || [ "$dirname" == "." ]; then                                                                                                                                                      
-    # Make the directory name equal "./"                                                                                                                                                                   
-    dirname="./"                                                                                                                                                                                           
-  fi                                                                                                                                                                                                       
-                                                                                                                                                                                                           
-  # Print the directory name                                                                                                                                                                               
-  echo "The directory name of the file script is: $dirname"                                                                                                                                                
-                                                                                                                                                                                                           
-  # Validate the directory is valid using the -d option                                                                                                                                                    
-  if ! [ -d "$dirname" ]; then                                                                                                                                                                               
-    # Print an error message and exit with code 1                                                                                                                                                          
-    echo "The directory is not valid." >&2                                                                                                                                                                 
-    exit 1                                                                                                                                                                                                 
-  fi                                                                                                                                                                                                       
-                                                                                                                                                                                                           
-  # Assign the directory name to a variable BASH_DIRNAME                                                                                                                                                   
-  BASH_DIRNAME="$dirname"                                                                                                                                                                                  
-}                                                                                                                                                                                                          
-                                                                                                                                                                                                           
-get_dirname
+set -euo pipefail
 
-ARG_DEVINT=
+BASH_DIRNAME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Initialize arguments
+ARG_DEVINT=""
 ARG_PEER=""
 ARG_IP=""
 ARG_CLIENT_ALLOWED_IPS=""
-ARG_DOPERSISTANTKEEPALIVES=
+ARG_PERSISTENT_KEEPALIVE=""
+ARG_VERBOSE=false
+ARG_USE_COREDNS=false
 
-# user device usage
 ARG_USERMODE=true
-ARG_USERMODE_FORMAT=json
-ARG_USER_ID=
-ARG_USER_DEVICENAME=
-ARG_USER_INTERNALDEVICEID=
+ARG_USERMODE_FORMAT="json"
+ARG_USER_ID=""
+ARG_USER_DEVICENAME=""
+ARG_USER_INTERNALDEVICEID=""
 ARG_USER_ISDISABLED=false
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# Functions
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+is_positive_integer() {
+    [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -gt 0 ]]
+}
+
+debug() {
+    if $ARG_VERBOSE; then
+        echo "[DEBUG] $1"
+    fi
+}
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # CLI
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-function usage {
-    echo "Usage: $0 -D <DEVINT> -p <PEER> [PARAMS]"
-    echo "  parameters:"
-    echo "   -h    help"
-    echo "   -D    device interface"
-    echo "   -p    peer ID"
-    echo "   -i    IP address"
-    echo "   -a    allowed client IP addresses or subnets to connect to"
-    echo "   -K    persistent keep alive (default=false | true)"
-    echo "  user device config"
-    echo "   -u    user mode (default=true | false); if false, then no config is expected"
-    echo "   -f    format (default=json | conf)"
-    echo "   -U    user id"
-    echo "   -N    device name (human readable)"
-    echo "   -I    internal device id"
-    echo "   -d    disabled (default=false | true)"
+usage() {
+    echo "Usage: $0 -D <DEVINT> -p <PEER> [options]"
+    echo
+    echo "Required:"
+    echo "  -D    WireGuard device interface (e.g. wg0)"
+    echo "  -p    Peer ID (e.g. peer1)"
+    echo
+    echo "Options:"
+    echo "  -i    Peer IP address (optional)"
+    echo "  -a    Client allowed IPs/subnets (optional)"
+    echo "  -K    PersistentKeepalive seconds (integer)"
+    echo "  -v    Verbose output (debugging)"
+    echo
+    echo "User device fields (if -u true):"
+    echo "  -u    User mode (true/false, default=true)"
+    echo "  -f    User format (json/conf, default=json)"
+    echo "  -U    User ID (email)"
+    echo "  -N    Device name"
+    echo "  -I    Internal device ID"
+    echo "  -d    Disable peer immediately (true/false)"
 }
 
-while getopts "hp:i:a:D:K:f:u:U:N:I:d:" opt; do
-  case $opt in
-    D) # device interface
-        ARG_DEVINT=${OPTARG}
-        ;;
-    p) # peer name/identifier
-        ARG_PEER=${OPTARG}
-        ;;
-    i) # ip address
-        ARG_IP=${OPTARG}
-        ;;
-    a) # allowed ip addresses or subnets
-        ARG_CLIENT_ALLOWED_IPS=${OPTARG}
-        ;;
-    K) # persistant keep alives
-        ARG_DOPERSISTANTKEEPALIVES=${OPTARG}
-        if [[ "${ARG_DOPERSISTANTKEEPALIVES}" != "true" ]]; then
-            ARG_DOPERSISTANTKEEPALIVES=false
-        fi
-        ;;
-    u) # user-mode
-        ARG_USERMODE="${OPTARG,,}"
-        if [[ "${ARG_USERMODE}" != "false" ]]; then
-            ARG_USERMODE=true
-        fi
-        ;;
-    f) # format
-        ARG_USERMODE_FORMAT="${OPTARG,,}"
-        if [[ "${ARG_USERMODE_FORMAT}" != "conf" ]]; then
-            ARG_USERMODE_FORMAT=json
-        fi
-        ;;
-    U) # user id
-        ARG_USER_ID=${OPTARG}
-        ;;
-    N) # user device name (human readable)
-        ARG_USER_DEVICENAME="${OPTARG}"
-        ;;
-    I) # user internal device id
-        ARG_USER_INTERNALDEVICEID=${OPTARG}
-        ;;
-    d) # user is disabled
-        ARG_USER_ISDISABLED=${OPTARG,,}
-        if [[ "${ARG_USER_ISDISABLED}" != "true" ]]; then
-            ARG_USER_ISDISABLED=false
-        fi
-        ;;
-    h | *) # display help
-        usage
-        exit 0
-        ;;
-    \?)
-        set +x
-        echo "Invalid option: -$OPTARG" >&2
-        usage
-        exit 1
-        ;;
-    :)
-        set +x
-        echo "Option -$OPTARG requires an argument." >&2
-        usage
-        exit 1
-        ;;
-  esac
+while getopts "hD:p:i:a:K:u:f:U:N:I:d:v" opt; do
+    case $opt in
+        D) ARG_DEVINT="${OPTARG}" ;;
+        p) ARG_PEER="${OPTARG}" ;;
+        i) ARG_IP="${OPTARG}" ;;
+        a) ARG_CLIENT_ALLOWED_IPS="${OPTARG}" ;;
+        K) ARG_PERSISTENT_KEEPALIVE="${OPTARG}" ;;
+        u) ARG_USERMODE="${OPTARG,,}" ;;
+        f) ARG_USERMODE_FORMAT="${OPTARG,,}" ;;
+        U) ARG_USER_ID="${OPTARG}" ;;
+        N) ARG_USER_DEVICENAME="${OPTARG}" ;;
+        I) ARG_USER_INTERNALDEVICEID="${OPTARG}" ;;
+        d) ARG_USER_ISDISABLED="${OPTARG,,}" ;;
+        v) ARG_VERBOSE=true ;;
+        h) usage; exit 0 ;;
+        *) usage >&2; exit 1 ;;
+    esac
 done
 
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_DEVINT CHECKS
+# VALIDATIONS
 #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Check if ARG_DEVINT is empty string
 if [[ -z "$ARG_DEVINT" ]]; then
-    echo "Parameter -D (DEVINT) is required. Use -h for help."
+    echo "Error: Parameter -D (DEVINT) is required." >&2
     exit 1
 fi
 
-WG_CONF_FILE=/config/wg_confs/${ARG_DEVINT}.conf
-if [[ ! -f "${WG_CONF_FILE}" ]]; then
-    echo "failed: wg_conf file not found for device interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
-    exit 1
-fi
-
-SERVER_DIR="/config/server_${ARG_DEVINT}"
-if [[ ! -d "${SERVER_DIR}" ]]; then
-    echo "failed: server directory not found for device interface ${ARG_DEVINT} at ${SERVER_DIR}"
-    exit 1
-fi
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_PEER CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-# Check if ARG_PEER is empty string
 if [[ -z "$ARG_PEER" ]]; then
-    echo "Parameter -p (PEER) is required. Use -h for help."
+    echo "Error: Parameter -p (PEER) is required." >&2
     exit 1
 fi
 
-# Ensure ARG_PEER has the prefix "peer_"
-if [[ "$ARG_PEER" != peer_* ]]; then
-        ARG_PEER="peer_$ARG_PEER"
-fi
+WG_CONF_FILE="/config/wg_confs/${ARG_DEVINT}.conf"
+SERVER_DIR="/config/server_${ARG_DEVINT}"
 
-
-PEER_DIR=$SERVER_DIR/${ARG_PEER}
-
-# Check if ARG_PEER already has created directory
-if [[ -d "${PEER_DIR}" ]]; then
-    echo "${ARG_PEER} already has created directory at ${PEER_DIR}"
+# Check if WireGuard config and server directory exist
+if [[ ! -f "$WG_CONF_FILE" ]]; then
+    echo "Error: wg_conf file not found at ${WG_CONF_FILE}" >&2
     exit 1
 fi
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# USER-MODE
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-if [[ "${ARG_USERMODE}" == "true" ]]; then
-    if [[ -z "$ARG_USER_ID" ]]; then
-        echo "Parameter -U (USERID) is required (eg email) when user-mode is true. Use -h for help."
-        exit 1
-    fi    
+if [[ ! -d "$SERVER_DIR" ]]; then
+    echo "Error: server directory not found at ${SERVER_DIR}" >&2
+    exit 1
 fi
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# HIDDEN ENV LOAD
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# Check if the server directory contains required files
+required_files=("privatekey-server" "publickey-server")
+missing_files=()
 
-source ${SERVER_DIR}/settings.env
-
-#while IFS== read -r key value; do
-#  if [[ ! -z "$key" ]]; then
-#    printf -v "$key" %s "$value" && export "$key"
-#  fi
-#done <${SERVER_DIR}/settings.env
-#printenv | grep ORIG_
-
-SERVERURL=${ORIG_SERVERURL}
-SERVERPORT=${ORIG_SERVERPORT}
-PEERDNS=${ORIG_PEERDNS}
-ALLOWEDIPS=${ORIG_ALLOWEDIPS}
-INTERFACE=${ORIG_INTERFACE}
-INTERNAL_SUBNET=${ORIG_INTERNAL_SUBNET}
-DEVINT=${ARG_DEVINT}
-
-if [[ -z "$ARG_DOPERSISTANTKEEPALIVES" ]]; then
-    if [[ "$ORIG_DOPERSISTANTKEEPALIVES" = "true" ]]; then
-        ARG_DOPERSISTANTKEEPALIVES=true
-    else
-        ARG_DOPERSISTANTKEEPALIVES=false
+for file in "${required_files[@]}"; do
+    if [[ ! -f "$SERVER_DIR/$file" ]]; then
+        missing_files+=("$file")
     fi
-fi
+done
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_IP CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-#INTERFACE=$(echo "$INTERNAL_SUBNET" | awk 'BEGIN{FS=OFS="."} NF--')
-if [[ -z "$INTERFACE" ]]; then
-    echo "cannot determine INTERFACE from ${INTERNAL_SUBNET} found in ${SERVER_DIR}/settings.env"
+# If any required files are missing, exit with an error
+if [[ ${#missing_files[@]} -gt 0 ]]; then
+    echo "Error: Missing required files in server directory ${SERVER_DIR}: ${missing_files[@]}" >&2
     exit 1
 fi
 
+# ─── Load Global Configuration
+if [[ -f /gw-scripts/globals.env ]]; then
+    source /gw-scripts/globals.env
+else
+    echo "**** [ERROR] globals.env not found at /gw-scripts/globals.env. Aborting. ****"
+    exit 1
+fi
+
+# ─── Load Server Settings from settings.env if it exists
+if [[ -f "$SERVER_DIR/settings.env" ]]; then
+    source "$SERVER_DIR/settings.env"
+    debug "Loaded server-specific settings from $SERVER_DIR/settings.env"
+else
+    debug "No server-specific settings found for $ARG_DEVINT. Using global settings."
+fi
+
+# ─── Resolve Arguments Using Fallbacks (Combine with Environment Variables)
+ARG_SERVERURL="${ARG_SERVERURL:-$GWExternalServerUrl}"
+ARG_SERVERPORT="${ARG_SERVERPORT:-$GWExternalServerPort}"
+ARG_INTERNAL_SUBNET="${ARG_INTERNAL_SUBNET:-$GWContainerWGSubnet}"
+ARG_ALLOWEDIPS="${ARG_ALLOWEDIPS:-$GWContainerWGAllowedIPs}"
+ARG_PEERDNS="${ARG_PEERDNS:-$GWContainerWGPeerDNS}"
+ARG_USE_COREDNS="${ARG_USE_COREDNS:-$GWUseCoreDNS}"
+ARG_PERSISTENT_KEEPALIVE="${ARG_PERSISTENT_KEEPALIVE:-$GWContainerWGPersistKeepAlive}"
+
+# ─── Derived Values (BASE_SUBNET and GATEWAY_IP)
+BASE_SUBNET="${ARG_INTERNAL_SUBNET%.*}"  # Remove last octet to get base subnet
+GATEWAY_IP="${GWContainerWGGW%/*}"  # Exclude CIDR from gateway IP
+
+debug "Server settings loaded: SERVERURL=$ARG_SERVERURL, SERVERPORT=$ARG_SERVERPORT, INTERNAL_SUBNET=$ARG_INTERNAL_SUBNET, BASE_SUBNET=$BASE_SUBNET"
+
+# ─── PeerDNS checks
+if [[ -z "$ARG_PEERDNS" ]] || [[ "$ARG_PEERDNS" == "auto" ]]; then
+    ARG_PEERDNS="${GATEWAY_IP}"  # Use gateway IP as default DNS
+    echo "PEERDNS is either not set or set to \"auto\", setting peer DNS to ${GATEWAY_IP} (gateway address) for DNS resolution."
+else
+    debug "Peer DNS servers will be set to $PEERDNS"
+fi
+
+# ─── User Mode Validations
+if [[ "$ARG_USERMODE" == "true" && -z "$ARG_USER_ID" ]]; then
+    echo "Error: -U (USER_ID) is required when user mode is enabled." >&2
+    exit 1
+fi
+
+# ─── Prepare Peer Directory
+[[ "$ARG_PEER" != peer_* ]] && ARG_PEER="peer_$ARG_PEER"
+PEER_DIR="${SERVER_DIR}/${ARG_PEER}"
+
+debug "Checking if peer directory already exists at $PEER_DIR"
+
+if [[ -d "$PEER_DIR" ]]; then
+    echo "Error: Peer $ARG_PEER already exists at ${PEER_DIR}" >&2
+    exit 1
+fi
+
+mkdir -p "$PEER_DIR"
+debug "Created directory for peer $ARG_PEER."
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# LOGIC
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+# ─── IP Discovery
 if [[ -z "$ARG_IP" ]]; then
-    # Discover unused ARG_IP
-    # This is a simple discovery. It assumes the "peer*" directories 
-    # have been created in order and assigned IPs in order.
-    # If a peer has been deleted, then there will be a hole.
+    debug "No IP provided, discovering available IP."
+
+    # Initialize USED_IPS as empty
+    USED_IPS=""
+    
+    # Loop through each peer configuration file and extract IP addresses
+    for peer_conf in ${SERVER_DIR}/peer_*/peer_*.conf; do
+        if [[ -f "$peer_conf" ]]; then
+            # Extract the IP address assigned to this peer
+            peer_ip=$(grep -oP "Address\s*=\s*\K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+" "$peer_conf" 2>/dev/null)
+            if [[ -n "$peer_ip" ]]; then
+                USED_IPS="$USED_IPS $peer_ip"
+                debug "Found used IP: $peer_ip in $peer_conf"
+            fi
+        fi
+    done
+
+    debug "Used IPs: $USED_IPS"
+    
+    # Loop to find the next available IP
     for idx in {2..254}; do
-        PROPOSED_IP="${INTERFACE}.${idx}"
-        if ! grep -q -R "${PROPOSED_IP}" ${SERVER_DIR}/peer*/*.conf 2>/dev/null && ([[ -z "${ORIG_INTERFACE}" ]] || ! grep -q -R "${ORIG_INTERFACE}.${idx}" ${SERVER_DIR}/peer*/*.conf 2>/dev/null); then
-            ARG_IP="${PROPOSED_IP}"
+        PROPOSED_IP="${BASE_SUBNET}.${idx}"
+        debug "Checking if proposed IP $PROPOSED_IP is in use."
+        
+        if ! echo "$USED_IPS" | grep -q "$PROPOSED_IP"; then
+            ARG_IP="$PROPOSED_IP"
+            debug "Assigned IP: $ARG_IP"
             break
         fi
     done
+
+    if [[ -z "$ARG_IP" ]]; then
+        echo "Error: No available IP addresses in range ${BASE_SUBNET}.2 - ${BASE_SUBNET}.254."
+        exit 1
+    fi
 fi
 
 is_valid_ip() {
@@ -251,8 +234,7 @@ is_valid_ip() {
         IFS='.'
         ip=($ip)
         IFS=$OIFS
-        [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 \
-           && ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
+        [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 && ${ip[2]} -le 255 && ${ip[3]} -le 255 ]]
         stat=$?
     fi
 
@@ -260,174 +242,110 @@ is_valid_ip() {
 }
 
 if ! is_valid_ip "$ARG_IP"; then
-    echo "The IP address could not be detected. We tried '$ARG_IP'."
+    echo "The IP address could not be detected or is invalid. We tried '$ARG_IP'."
     exit 1
 fi
 
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# ARG_CLIENT_ALLOWED_IPS CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-# Check if ARG_ALLOWED_IPS is empty string
-if [[ -z "$ARG_CLIENT_ALLOWED_IPS" ]]; then
-    # Use the default
-    if [[ -z "$ALLOWEDIPS" ]]; then
-        echo "Parameter -a (ARG_ALLOWED_IPS) is required. Use -h for help."
-        exit 1
-    else
-        ARG_CLIENT_ALLOWED_IPS=$ALLOWEDIPS
-    fi
-fi
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# PEERDNS CHECKS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-if [[ -z "$PEERDNS" ]] || [[ "$PEERDNS" = "auto" ]]; then
-    PEERDNS="${INTERFACE}.1"
-    #echo "**** PEERDNS var is either not set or is set to \"auto\", setting peer DNS to ${INTERFACE}.1 to use wireguard docker host's DNS. ****"
-#else
-#    echo "**** Peer DNS servers will be set to $PEERDNS ****"
-fi
- 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# GLOBAL ASSIGNMENTS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-# needed for merge in /config/templates/peer.conf
-PEER_ID=$ARG_PEER
-CLIENT_IP=$ARG_IP
-ALLOWEDIPS=$ARG_CLIENT_ALLOWED_IPS
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# CREATE DIR
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-mkdir -p "${PEER_DIR}"
-echo "created directory for peer ${ARG_PEER} for interface ${ARG_DEVINT} at ${PEER_DIR}"
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# PRIVATE-PUBLIC-PRESHARED KEYS
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+# ─── Generate Keys
 if [[ ! -f "${PEER_DIR}/privatekey-${ARG_PEER}" ]]; then
     umask 077
     wg genkey | tee "${PEER_DIR}/privatekey-${ARG_PEER}" | wg pubkey > "${PEER_DIR}/publickey-${ARG_PEER}"
     wg genpsk > "${PEER_DIR}/presharedkey-${ARG_PEER}"
-    echo "created private, public and preshared keys for peer ${ARG_PEER}"
+    debug "Generated private/public/preshared keys for $ARG_PEER."
 fi
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# WRITE CONF
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# ─── Render Peer Conf Template
 
-if [[ -f "${PEER_DIR}/presharedkey-${ARG_PEER}" ]]; then
-    # create peer conf with presharedkey
-    eval "$(printf %s)
-    cat <<DUDE > ${PEER_DIR}/${ARG_PEER}.conf
-$(cat /config/templates/peer.conf)
-DUDE"
-    # add peer info to server conf with presharedkey
-    cat <<DUDE >> ${WG_CONF_FILE}
-# BEGIN ${ARG_PEER}
-[Peer]
-PublicKey = $(cat "${PEER_DIR}/publickey-${ARG_PEER}")
-PresharedKey = $(cat "${PEER_DIR}/presharedkey-${ARG_PEER}")
-DUDE
-else
-    echo "**** Existing keys with no preshared key found for ${ARG_PEER}, creating confs without preshared key for backwards compatibility ****"
-    # create peer conf without presharedkey
-    eval "$(printf %s)
-    cat <<DUDE > ${PEER_DIR}/${ARG_PEER}.conf
-$(sed '/PresharedKey/d' "/config/templates/peer.conf")
-DUDE"
-    # add peer info to server conf without presharedkey
-    cat <<DUDE >> ${WG_CONF_FILE}
-# BEGIN ${ARG_PEER}
-[Peer]
-PublicKey = $(cat "${PEER_DIR}/publickey-${ARG_PEER}")
-DUDE
-fi
-echo "created peer conf at ${PEER_DIR}/${ARG_PEER}.conf"
+# Ensure CLIENT_IP and PEER_ID are set correctly
+CLIENT_IP="${ARG_IP:-auto}"
+PEER_ID="${ARG_PEER}"
 
-# add peer's allowedips to server conf
-#SERVER_ALLOWEDIPS=SERVER_ALLOWEDIPS_PEER_${i}
-#if [[ -n "${!SERVER_ALLOWEDIPS}" ]]; then
-#    echo "Adding ${!SERVER_ALLOWEDIPS} to wg0.conf's AllowedIPs for peer ${i}"
-#    cat <<DUDE >> ${WG_CONF_FILE}
-#AllowedIPs = ${CLIENT_IP}/32,${!SERVER_ALLOWEDIPS}
-#DUDE
-#else
-    cat <<DUDE >> ${WG_CONF_FILE}
-AllowedIPs = ${CLIENT_IP}/32
-DUDE
-#fi
+# Load the peer.conf template
+TEMPLATE_CONTENT=$(< /config/templates/peer.conf)
 
-# add PersistentKeepalive if the peer is specified
-# otherwise add an empty line
-if [[ "${ARG_DOPERSISTANTKEEPALIVES}" = "true" ]]; then
-    cat <<DUDE >> ${WG_CONF_FILE}
-PersistentKeepalive = 25
-# END ${ARG_PEER}
+# Dynamically load the key values
+PRIVATE_KEY=$(< "/config/server_${ARG_DEVINT}/${PEER_ID}/privatekey-${PEER_ID}")
+PUBLIC_KEY=$(< "/config/server_${ARG_DEVINT}/publickey-server")
+PRESHARED_KEY=$(< "/config/server_${ARG_DEVINT}/${PEER_ID}/presharedkey-${PEER_ID}")
+SERVER_INTERNAL_PORT=${GWContainerWGPort:-51820}
+# Default to `0.0.0.0/0` for ALLOWED_IPS.
+# Why not ipv6? `::/0` => breaks docker clients if not built with ipv6 / ip6tables
+# Why not "" (empty)? "" => not allowed on docker clients
+# Why not remove the property if empty? => not allowed on docker clients
+ALLOWED_IPS="${ARG_CLIENT_ALLOWED_IPS:-0.0.0.0/0}"
 
-DUDE
-else
-    cat <<DUDE >> ${WG_CONF_FILE}
-# END ${ARG_PEER}
+debug "Rendering peer configuration with IP: $CLIENT_IP, Allowed IPs: $ALLOWED_IPS"
 
-DUDE
-fi
+# Safely render the template with variable substitution
+RENDERED_PEER_CONF=$(echo "$TEMPLATE_CONTENT" | sed -e "
+  s|\${CLIENT_IP}|${CLIENT_IP}|g
+  s|\${PEER_ID}|${PEER_ID}|g
+  s|\${SERVERURL}|${ARG_SERVERURL}|g
+  s|\${SERVERPORT}|${ARG_SERVERPORT}|g
+  s|\${SERVER_INTERNAL_PORT}|${SERVER_INTERNAL_PORT}|g
+  s|\${PEERDNS}|${ARG_PEERDNS}|g
+  s|\${ALLOWEDIPS}|${ALLOWED_IPS}|g
+  s|\${PRIVATE_KEY}|${PRIVATE_KEY}|g
+  s|\${PUBLIC_KEY}|${PUBLIC_KEY}|g
+  s|\${PRESHARED_KEY}|${PRESHARED_KEY}|g
+")
 
-echo "update wg_conf for interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
+echo "$RENDERED_PEER_CONF" > "${PEER_DIR}/${ARG_PEER}.conf"
+debug "Rendered peer config saved to ${PEER_DIR}/${ARG_PEER}.conf"
 
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# QR-CODE
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-if [[ -z "${LOG_CONFS}" ]] || [[ "${LOG_CONFS}" = "true" ]]; then
-    echo "PEER ${ARG_PEER} QR code (conf file is saved under ${PEER_DIR}):"
-    qrencode -t ansiutf8 < "${PEER_DIR}/${ARG_PEER}.conf"
-fi
-qrencode -o "${PEER_DIR}/${ARG_PEER}.png" < "${PEER_DIR}/${ARG_PEER}.conf"
-echo "created qr-code png at ${PEER_DIR}/${ARG_PEER}.png"
-
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-# USER-MODE
-#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-if [[ "${ARG_USERMODE}" == "true" ]]; then
-    if [[ "${ARG_USERMODE_FORMAT}" == "json" ]]; then
-        cat <<DUDE > "${PEER_DIR}/user-device.json"
+# ─── Update Server Conf
 {
-    "userId": "${ARG_USER_ID}",
-    "name": "${ARG_USER_DEVICENAME}",
-    "internalId": "${ARG_USER_INTERNALDEVICEID}",
-    "disabled": ${ARG_USER_ISDISABLED},
-    "wgPeerId": "${ARG_PEER}",
-    "clientIP": "${CLIENT_IP}"
+  echo "# BEGIN $ARG_PEER"
+  echo "[Peer]"
+  echo "PublicKey = $(< "${PEER_DIR}/publickey-${ARG_PEER}")"
+  echo "PresharedKey = $(< "${PEER_DIR}/presharedkey-${ARG_PEER}")"
+  echo "AllowedIPs = ${ARG_IP}/32"
+  if is_positive_integer "$ARG_PERSISTENT_KEEPALIVE"; then
+      echo "PersistentKeepalive = ${ARG_PERSISTENT_KEEPALIVE}"
+  fi
+  echo "# END $ARG_PEER"
+  echo ""
+} >> "${WG_CONF_FILE}"
+
+debug "Updated server config at ${WG_CONF_FILE}"
+
+# ─── Generate QR Codes
+if command -v qrencode >/dev/null 2>&1; then
+    qrencode -o "${PEER_DIR}/${ARG_PEER}.png" < "${PEER_DIR}/${ARG_PEER}.conf"
+    debug "Generated QR code at ${PEER_DIR}/${ARG_PEER}.png"
+else
+    echo "Warning: qrencode not installed; QR code not generated." >&2
+fi
+
+# ─── Create User Device Config
+if [[ "$ARG_USERMODE" == "true" ]]; then
+    if [[ "$ARG_USERMODE_FORMAT" == "json" ]]; then
+        cat <<EOF > "${PEER_DIR}/user-device.json"
+{
+  "userId": "${ARG_USER_ID}",
+  "name": "${ARG_USER_DEVICENAME}",
+  "internalId": "${ARG_USER_INTERNALDEVICEID}",
+  "disabled": ${ARG_USER_ISDISABLED},
+  "wgPeerId": "${ARG_PEER}",
+  "clientIP": "${ARG_IP}"
 }
-DUDE
-        echo "created user-device.json at ${PEER_DIR}/user-device.json"
+EOF
+        debug "Created user-device.json."
     else
-        cat <<DUDE > "${PEER_DIR}/user-device.conf"
+        cat <<EOF > "${PEER_DIR}/user-device.conf"
 USERID="${ARG_USER_ID}"
 NAME="${ARG_USER_DEVICENAME}"
 INTERNALID="${ARG_USER_INTERNALDEVICEID}"
 DISABLED=${ARG_USER_ISDISABLED}
 WGPEERID="${ARG_PEER}"
-CLIENTIP="${CLIENT_IP}"
-DUDE
-        echo "created user-device.conf at ${PEER_DIR}/user-device.conf"
+CLIENTIP="${ARG_IP}"
+EOF
+        debug "Created user-device.conf."
     fi
-    
-    ## Use the disabled script to actually disable peer
-    if [[ "${ARG_USER_ISDISABLED}" == "true" ]]; then
-        ${BASH_DIRNAME}/wg_peer_disable.sh -D ${ARG_DEVINT} -p ${ARG_PEER} 
 
-        # Check if the operation was successful
-        if [ $? -ne 0 ]; then
-            echo "failed to disable ${ARG_PEER}"
+    if [[ "$ARG_USER_ISDISABLED" == "true" ]]; then
+        if ! "${BASH_SOURCE%/*}/wg_peer_disable.sh" -D "$ARG_DEVINT" -p "$ARG_PEER"; then
+            echo "Error: Failed to disable peer $ARG_PEER." >&2
             exit 2
         fi
     fi

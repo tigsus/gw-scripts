@@ -1,41 +1,27 @@
 #!/bin/bash
 
-# Function to get the directory of the script
-get_dirname() {
-    filename="${BASH_SOURCE[0]}"
-    dirname=$(dirname "$filename")
-    dirname="${dirname:-./}"
-    if ! [ -d "$dirname" ]; then
-        echo "The directory is not valid." >&2
-        exit 1
-    fi
-    BASH_DIRNAME="$dirname"
-}
+#!/bin/bash
+set -e
 
-get_dirname
+ARG_DEVINT=""
+ARG_USER_ID=""
+ARG_FILE=""
+ARG_PEER=""
+ARG_IP=""
 
-ARG_DEVINT=
-ARG_USER_ID=
-ARG_FILE=
-ARG_PEER=
-ARG_IP=
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# CLI
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-# Check for jq
-if ! command -v jq &>/dev/null; then
-    echo "jq is required but not installed. Please install jq and try again." >&2
-    exit 1
-fi
-
-# CLI usage
-function usage {
-    echo "Usage: $0 -D <DEVINT> -U <USER_ID> -F <FILE> -p <PEER>"
-    echo "  parameters:"
-    echo "   -h    help"
-    echo "   -D    device interface"
-    echo "   -p    peer ID (required for -F conf or -F png)"
-    echo "   -U    filter on user id"
-    echo "   -i    filter on IP address"
-    echo "   -F    file type (json | conf | png) default=json"
+usage() {
+    echo "Usage: $0 -D <DEVINT> [-U <USER_ID>] [-F <FILE>] [-p <PEER>] [-i <IP>]"
+    echo "  Parameters:"
+    echo "   -h    Help"
+    echo "   -D    WireGuard device interface (required)"
+    echo "   -p    Peer ID (required if requesting a file)"
+    echo "   -U    Filter by User ID (optional)"
+    echo "   -i    Filter by IP Address (optional)"
+    echo "   -F    File type (json | conf | png), default: json"
     echo
     echo "Examples:"
     echo "  $0 -D wg0"
@@ -51,37 +37,51 @@ while getopts "hD:U:F:p:i:" opt; do
         F) ARG_FILE=${OPTARG} ;;
         p) ARG_PEER=${OPTARG} ;;
         i) ARG_IP=${OPTARG} ;;
-        h | *) usage; exit 0 ;;
+        h) usage; exit 0 ;;
+        *) usage >&2; exit 1 ;;
     esac
 done
 
-# Validate ARG_DEVINT
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# PREREQUISITES
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+if ! command -v jq &>/dev/null; then
+    echo "Error: jq is required but not installed." >&2
+    exit 1
+fi
+
 if [[ -z "$ARG_DEVINT" ]]; then
-    echo "Parameter -D (DEVINT) is required. Use -h for help."
+    echo "Error: Parameter -D (DEVINT) is required. Use -h for help." >&2
     exit 1
 fi
 
 WG_CONF_FILE="/config/wg_confs/${ARG_DEVINT}.conf"
-if [[ ! -f "$WG_CONF_FILE" ]]; then
-    echo "failed: wg_conf file not found for device interface ${ARG_DEVINT} at ${WG_CONF_FILE}"
-    exit 1
-fi
-
 SERVER_DIR="/config/server_${ARG_DEVINT}"
-if [[ ! -d "$SERVER_DIR" ]]; then
-    echo "failed: server directory not found for device interface ${ARG_DEVINT} at ${SERVER_DIR}"
+
+if [[ ! -f "$WG_CONF_FILE" ]]; then
+    echo "Error: WireGuard config file not found at $WG_CONF_FILE" >&2
     exit 1
 fi
 
+if [[ ! -d "$SERVER_DIR" ]]; then
+    echo "Error: Server directory not found at $SERVER_DIR" >&2
+    exit 1
+fi
+
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# LOGIC
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+# ─── Default File Type
 ARG_FILE=${ARG_FILE:-json}
 
+# ─── Serve Specific Peer File if Requested
 if [[ -n "$ARG_PEER" ]]; then
-    # Add the "peer_" prefix to ARG_PEER if it doesn't already have it
     if [[ "$ARG_PEER" != peer_* ]]; then
         ARG_PEER="peer_${ARG_PEER}"
     fi
 
-    # Determine the file path based on the type of file requested
     if [[ "$ARG_FILE" != "conf" && "$ARG_FILE" != "png" ]]; then
         ARG_FILE="json"
         ARG_FILE_PATH="${SERVER_DIR}/${ARG_PEER}/user-device.${ARG_FILE}"
@@ -89,49 +89,49 @@ if [[ -n "$ARG_PEER" ]]; then
         ARG_FILE_PATH="${SERVER_DIR}/${ARG_PEER}/${ARG_PEER}.${ARG_FILE}"
     fi
 
-    # Check if the file exists
     if [[ ! -f "$ARG_FILE_PATH" ]]; then
-        echo "failed: file not found ${ARG_FILE_PATH}" >&2
+        echo "Error: Requested file not found: $ARG_FILE_PATH" >&2
         exit 1
     fi
 
-    # Serve the file content for Docker output
-    if [[ "$ARG_FILE" = "png" ]]; then
-        # Binary file output (e.g., for Docker)
-        echo "Serving binary file: $ARG_FILE_PATH" >&2
+    if [[ "$ARG_FILE" == "png" ]]; then
         cat "$ARG_FILE_PATH"
     else
-        # Text-based file output
-        echo "Serving text file: $ARG_FILE_PATH" >&2
         cat "$ARG_FILE_PATH"
     fi
     exit 0
 fi
 
-# Initialize PEERS array
+# ─── Collect Peers for JSON Output
 PEERS=()
 
-# Loop through peer directories
-for PEER_DIR in ${SERVER_DIR}/peer_*; do
-    if [[ -d "$PEER_DIR" ]]; then
-        DEVJSON_FILE="$PEER_DIR/user-device.json"
-        if [[ -f "$DEVJSON_FILE" ]]; then
-            USER_ID=$(jq -r '.userId' "$DEVJSON_FILE")
-            if [[ -n "$ARG_USER_ID" ]] && [[ "${USER_ID,,}" != "${ARG_USER_ID,,}" ]]; then
-                continue
-            fi
-            CLIENT_IP=$(jq -r '.clientIP' "$DEVJSON_FILE")
-            if [[ -n "$ARG_IP" ]] && [[ "${CLIENT_IP,,}" != "${ARG_IP,,}" ]]; then
-                continue
-            fi
+for PEER_DIR in "${SERVER_DIR}"/peer_*; do
+    [[ -d "$PEER_DIR" ]] || continue
+
+    DEVJSON_FILE="${PEER_DIR}/user-device.json"
+    if [[ -f "$DEVJSON_FILE" ]]; then
+        user_id=$(jq -r '.userId // empty' "$DEVJSON_FILE")
+        client_ip=$(jq -r '.clientIP // empty' "$DEVJSON_FILE")
+
+        match=true
+
+        if [[ -n "$ARG_USER_ID" ]]; then
+            [[ "${user_id,,}" == "${ARG_USER_ID,,}" ]] || match=false
+        fi
+
+        if [[ "$match" == true && -n "$ARG_IP" ]]; then
+            [[ "${client_ip,,}" == "${ARG_IP,,}" ]] || match=false
+        fi
+
+        if [[ "$match" == true ]]; then
             PEERS+=("$(cat "$DEVJSON_FILE")")
         fi
     fi
 done
 
-# Print JSON array
+# ─── Output Final JSON Array
 if [[ ${#PEERS[@]} -eq 0 ]]; then
-    echo "[]" # Empty JSON array
+    echo "[]" # Empty array if no matches
 else
     printf '%s\n' "${PEERS[@]}" | jq -s '.'
 fi

@@ -1,0 +1,7 @@
+. {
+    loop
+    errors
+    health 127.0.0.1:8080
+    # metrics 127.0.0.1:8080  ← disabled; not supported in this build
+    forward . /etc/resolv.conf
+}
